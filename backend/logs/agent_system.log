@@ -49,3 +49,6 @@
 2025-08-04 17:25:02,442 INFO: AI智能体管理系统启动 [in D:\Codes\agentDemo\backend\app.py:28]
 2025-08-04 17:25:03,572 INFO: 数据库连接成功 [in D:\Codes\agentDemo\backend\app.py:74]
 2025-08-04 17:25:03,573 INFO: 启动服务器: 0.0.0.0:3000 [in D:\Codes\agentDemo\backend\app.py:148]
+2025-08-05 11:03:07,108 INFO: AI智能体管理系统启动 [in D:\Codes\agentDemo\backend\app.py:28]
+2025-08-05 11:03:10,673 INFO: 数据库连接成功 [in D:\Codes\agentDemo\backend\app.py:74]
+2025-08-05 11:03:10,673 INFO: 启动服务器: 0.0.0.0:3000 [in D:\Codes\agentDemo\backend\app.py:148]

@@ -533,55 +533,24 @@ const formatParameters = (parameters: Record<string, any> | undefined) => {
 // ==================== Ollama相关功能 ====================
 
 /**
- * 测试Ollama连接
- */
-const testOllamaConnection = async () => {
-  try {
-    testingConnection.value = true
-    console.log('🔍 测试Ollama连接:', createForm.serverUrl)
-    
-    const response = await api.models.checkOllamaHealth(createForm.serverUrl)
-    if (response.data.success && response.data.data.healthy) {
-      message.success('Ollama服务器连接成功')
-      ollamaHealth.value = true
-      
-      // 连接成功后自动加载可用模型
-      await loadOllamaModels()
-      
-      // 如果还没有选择模型名称，提示用户选择
-      if (!createForm.name && availableOllamaModels.value.length > 0) {
-        message.info(`发现 ${availableOllamaModels.value.length} 个可用模型，请从列表中选择`)
-      }
-    } else {
-      message.error('Ollama服务器连接失败')
-      ollamaHealth.value = false
-      availableOllamaModels.value = []
-    }
-  } catch (error: any) {
-    console.error('Ollama连接测试失败:', error)
-    message.error('Ollama服务器连接失败，请检查服务器地址和网络连接')
-    ollamaHealth.value = false
-    availableOllamaModels.value = []
-  } finally {
-    testingConnection.value = false
-  }
-}
-
-/**
- * 加载Ollama可用模型列表
+ * 加载Ollama可用模型
  */
 const loadOllamaModels = async () => {
   try {
     loadingOllamaModels.value = true
-    console.log('🔍 开始加载Ollama可用模型...')
+    console.log('🔍 开始加载Ollama模型...')
     
     const serverUrl = createForm.serverUrl || ollamaConfig.serverUrl
-    console.log('🔍 使用服务器地址:', serverUrl)
+    console.log('📋 使用服务器地址:', serverUrl)
     
     const response = await api.models.getOllamaModels(serverUrl)
     
+    console.log('📊 API响应:', response)
+    
     if (response.data.success) {
       const ollamaModels = response.data.data || []
+      console.log('📋 原始模型数据:', ollamaModels)
+      
       availableOllamaModels.value = ollamaModels.map((model: string) => ({
         label: model,
         value: model
@@ -598,10 +567,55 @@ const loadOllamaModels = async () => {
     }
   } catch (error: any) {
     console.error('❌ 加载Ollama模型失败:', error)
+    console.error('❌ 错误详情:', error.response?.data)
     message.error('加载Ollama模型失败，请检查Ollama服务器连接')
     availableOllamaModels.value = []
   } finally {
     loadingOllamaModels.value = false
+  }
+}
+
+/**
+ * 测试Ollama连接
+ */
+const testOllamaConnection = async () => {
+  try {
+    checkingOllama.value = true
+    console.log('🔍 开始测试Ollama连接...')
+    
+    const serverUrl = createForm.serverUrl || ollamaConfig.serverUrl
+    console.log('📋 使用服务器地址:', serverUrl)
+    
+    const response = await api.models.checkOllamaHealth(serverUrl)
+    
+    console.log('📊 健康检查响应:', response)
+    
+    if (response.data.success && response.data.data.healthy) {
+      message.success('Ollama服务器连接成功')
+      ollamaHealth.value = true
+      
+      // 连接成功后加载可用模型
+      await loadOllamaModels()
+      
+      if (availableOllamaModels.value.length > 0) {
+        message.success(`发现 ${availableOllamaModels.value.length} 个可用模型`)
+        console.log('📋 可用模型列表:', availableOllamaModels.value.map(m => m.label))
+      } else {
+        message.warning('未发现可用模型，请确保Ollama已安装模型')
+      }
+    } else {
+      message.error('Ollama服务器连接失败')
+      ollamaHealth.value = false
+      availableOllamaModels.value = []
+    }
+  } catch (error: any) {
+    console.error('❌ 测试Ollama连接失败:', error)
+    console.error('❌ 错误详情:', error.response?.data)
+    message.error('Ollama服务器连接失败，请检查服务器地址和网络连接')
+    ollamaHealth.value = false
+    availableOllamaModels.value = []
+  } finally {
+    checkingOllama.value = false
   }
 }
 
@@ -978,6 +992,7 @@ const createModel = async () => {
         }
       } catch (error: any) {
         console.error('创建/更新模型失败:', error)
+        console.error('错误详情:', error.response?.data)
         message.error(error.response?.data?.message || (editingModel.value ? '更新失败' : '创建失败'))
       } finally {
         creating.value = false

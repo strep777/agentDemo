@@ -1,3 +1,6 @@
+# 模型管理路由模块
+# 提供模型的CRUD操作、Ollama集成、模型测试等功能
+
 from flask import Blueprint, request, jsonify
 from app.services.database import get_db
 from app.services.ollama import OllamaService
@@ -7,6 +10,7 @@ from bson import ObjectId
 from datetime import datetime
 import json
 
+# 创建模型蓝图
 models_bp = Blueprint('models', __name__)
 
 @models_bp.route('', methods=['GET'])
@@ -14,7 +18,10 @@ models_bp = Blueprint('models', __name__)
 @token_required
 @handle_exception
 def get_models(current_user):
-    """获取模型列表"""
+    """
+    获取模型列表
+    支持分页、搜索、按提供商和类型筛选
+    """
     print(f"🔍 获取模型列表 - 用户: {current_user['username']}")
     
     # 获取查询参数
@@ -98,7 +105,9 @@ def get_models(current_user):
 @token_required
 @handle_exception
 def get_model(current_user, model_id):
-    """获取模型详情"""
+    """
+    获取模型详情
+    """
     # 验证ID格式
     if not ObjectId.is_valid(model_id):
         return jsonify(ApiResponse.error('无效的模型ID')), 400
@@ -133,7 +142,10 @@ def get_model(current_user, model_id):
 @token_required
 @handle_exception
 def create_model(current_user):
-    """创建模型"""
+    """
+    创建模型
+    支持各种类型的模型创建，包括Ollama模型
+    """
     # 检查用户权限
     if current_user.get('role') != 'admin':
         return jsonify(ApiResponse.error('只有管理员可以创建模型')), 403
@@ -198,63 +210,52 @@ def create_model(current_user):
             if '_id' in response_data:
                 del response_data['_id']
         else:
-            # 如果序列化失败，创建基本响应
             response_data = {
                 'id': str(inserted_model['_id']),
-                'name': inserted_model.get('name', ''),
-                'provider': inserted_model.get('provider', ''),
-                'type': inserted_model.get('type', ''),
-                'description': inserted_model.get('description', ''),
+                'name': inserted_model.get('name'),
+                'provider': inserted_model.get('provider'),
+                'type': inserted_model.get('type'),
                 'status': inserted_model.get('status', 'active')
             }
+        
+        print(f"✅ 模型创建成功: {inserted_model.get('name')}")
+        return jsonify(ApiResponse.success(response_data, "模型创建成功")), 201
     else:
-        # 如果无法获取插入的数据，使用原始数据但确保ID正确
-        response_data = serialize_mongo_data(model_data)
-        if isinstance(response_data, dict):
-            response_data['id'] = str(result.inserted_id)
-        else:
-            # 如果序列化失败，创建基本响应
-            response_data = {
-                'id': str(result.inserted_id),
-                'name': model_data.get('name', ''),
-                'provider': model_data.get('provider', ''),
-                'type': model_data.get('type', ''),
-                'description': model_data.get('description', ''),
-                'status': model_data.get('status', 'active')
-            }
-    
-    print(f"✅ 模型创建成功: {response_data}")
-    return jsonify(ApiResponse.success(response_data, "模型创建成功"))
+        print("❌ 模型创建失败：无法获取插入的数据")
+        return jsonify(ApiResponse.error("模型创建失败")), 500
 
 @models_bp.route('/<model_id>', methods=['PUT'])
 @token_required
 @handle_exception
 def update_model(current_user, model_id):
-    """更新模型"""
+    """
+    更新模型
+    """
     # 检查用户权限
     if current_user.get('role') != 'admin':
         return jsonify(ApiResponse.error('只有管理员可以更新模型')), 403
-    
-    data = request.get_json()
     
     # 验证ID格式
     if not ObjectId.is_valid(model_id):
         return jsonify(ApiResponse.error('无效的模型ID')), 400
     
+    data = request.get_json()
+    print(f"📝 更新模型数据: {data}")
+    
     db = get_db()
     
     # 检查模型是否存在
-    model = db.models.find_one({'_id': ObjectId(model_id)})
-    if not model:
+    existing_model = db.models.find_one({'_id': ObjectId(model_id)})
+    if not existing_model:
         return jsonify(ApiResponse.error('模型不存在')), 404
     
-    # 检查名称是否重复
-    if 'name' in data and data['name'] != model['name']:
-        existing_model = db.models.find_one({
+    # 如果更新名称，检查是否与其他模型冲突
+    if 'name' in data and data['name'] != existing_model['name']:
+        name_conflict = db.models.find_one({
             'name': data['name'],
             '_id': {'$ne': ObjectId(model_id)}
         })
-        if existing_model:
+        if name_conflict:
             return jsonify(ApiResponse.error('模型名称已存在')), 400
     
     # 更新数据
@@ -262,56 +263,40 @@ def update_model(current_user, model_id):
         'updated_at': datetime.now()
     }
     
-    # 字段映射：前端字段 -> 后端字段
-    field_mapping = {
-        'name': 'name',
-        'provider': 'provider',
-        'type': 'type',  # 保持与前端一致
-        'description': 'description',
-        'version': 'version',
-        'api_key': 'api_key',
-        'server_url': 'server_url',  # 保持与前端一致
-        'max_tokens': 'max_tokens',
-        'temperature': 'temperature',
-        'top_p': 'top_p',
-        'frequency_penalty': 'frequency_penalty',
-        'presence_penalty': 'presence_penalty',
-        'parameters': 'parameters',  # 保持与前端一致
-        'settings': 'settings',
-        'metadata': 'metadata',
-        'is_active': 'is_active',
-        'status': 'status'
-    }
+    # 只更新提供的字段
+    allowed_fields = [
+        'name', 'description', 'version', 'api_key', 'server_url',
+        'max_tokens', 'temperature', 'top_p', 'frequency_penalty',
+        'presence_penalty', 'parameters', 'settings', 'metadata',
+        'is_active', 'status'
+    ]
     
-    # 更新允许的字段
-    for frontend_field, backend_field in field_mapping.items():
-        if frontend_field in data:
-            update_data[backend_field] = data[frontend_field]
+    for field in allowed_fields:
+        if field in data:
+            update_data[field] = data[field]
     
-    # 更新数据库
+    print(f"💾 更新模型数据: {update_data}")
+    
+    # 执行更新
     result = db.models.update_one(
         {'_id': ObjectId(model_id)},
         {'$set': update_data}
     )
     
     if result.modified_count > 0:
-        # 获取更新后的模型数据
-        updated_model = db.models.find_one({'_id': ObjectId(model_id)})
-        if updated_model:
-            response_data = serialize_mongo_data(updated_model)
-            if isinstance(response_data, dict):
-                response_data['id'] = str(updated_model['_id'])
-                if '_id' in response_data:
-                    del response_data['_id']
-            return jsonify(ApiResponse.success(response_data, "模型更新成功"))
-    
-    return jsonify(ApiResponse.success(None, "模型更新成功"))
+        print(f"✅ 模型更新成功: {model_id}")
+        return jsonify(ApiResponse.success(None, "模型更新成功"))
+    else:
+        print(f"❌ 模型更新失败: {model_id}")
+        return jsonify(ApiResponse.error("模型更新失败")), 500
 
 @models_bp.route('/<model_id>', methods=['DELETE'])
 @token_required
 @handle_exception
 def delete_model(current_user, model_id):
-    """删除模型"""
+    """
+    删除模型
+    """
     # 检查用户权限
     if current_user.get('role') != 'admin':
         return jsonify(ApiResponse.error('只有管理员可以删除模型')), 403
@@ -323,26 +308,33 @@ def delete_model(current_user, model_id):
     db = get_db()
     
     # 检查模型是否存在
-    model = db.models.find_one({'_id': ObjectId(model_id)})
-    if not model:
+    existing_model = db.models.find_one({'_id': ObjectId(model_id)})
+    if not existing_model:
         return jsonify(ApiResponse.error('模型不存在')), 404
     
-    # 删除模型
-    db.models.delete_one({'_id': ObjectId(model_id)})
+    # 执行删除
+    result = db.models.delete_one({'_id': ObjectId(model_id)})
     
-    return jsonify(ApiResponse.success(None, "模型删除成功"))
+    if result.deleted_count > 0:
+        print(f"✅ 模型删除成功: {model_id}")
+        return jsonify(ApiResponse.success(None, "模型删除成功"))
+    else:
+        print(f"❌ 模型删除失败: {model_id}")
+        return jsonify(ApiResponse.error("模型删除失败")), 500
 
 @models_bp.route('/<model_id>/test', methods=['POST'])
 @token_required
 @handle_exception
 def test_model(current_user, model_id):
-    """测试模型"""
-    data = request.get_json()
-    test_message = data.get('message', 'Hello, how are you?')
-    
+    """
+    测试模型
+    """
     # 验证ID格式
     if not ObjectId.is_valid(model_id):
         return jsonify(ApiResponse.error('无效的模型ID')), 400
+    
+    data = request.get_json()
+    message = data.get('message', 'Hello, how are you?')
     
     db = get_db()
     
@@ -351,83 +343,86 @@ def test_model(current_user, model_id):
     if not model:
         return jsonify(ApiResponse.error('模型不存在')), 404
     
-    # 测试模型连接
     try:
-        if model['provider'] == 'ollama':
-            # 使用模型配置的API地址
+        print(f"🧪 测试模型: {model.get('name')} - 消息: {message[:50]}...")
+        
+        # 根据提供商调用不同的测试方法
+        if model.get('provider') == 'ollama':
+            # 使用Ollama服务测试
             server_url = model.get('server_url', 'http://localhost:11434')
-            ollama_service = OllamaService(server_url)
-            response = ollama_service.chat(
-                model=model['name'],
-                messages=[{'role': 'user', 'content': test_message}],
-                temperature=model.get('temperature', 0.7),
-                max_tokens=model.get('max_tokens', 100)
-            )
-            # 确保response是字典类型并且包含content字段
-            if isinstance(response, dict) and 'content' in response:
-                response_content = response['content']
-            else:
-                response_content = str(response) if response else '无响应'
+            model_name = model.get('name')
             
-            test_result = {
+            print(f"🔧 使用Ollama测试 - 服务器: {server_url}, 模型: {model_name}")
+            
+            ollama_service = OllamaService(server_url)
+            response = ollama_service.generate_text(
+                model_name=model_name,
+                prompt=message,
+                temperature=model.get('temperature', 0.7),
+                max_tokens=model.get('max_tokens', 1000)
+            )
+            
+            print(f"✅ Ollama模型测试成功")
+            return jsonify(ApiResponse.success({
                 'success': True,
-                'response': response_content,
-                'model': model['name'],
-                'provider': model['provider']
-            }
+                'response': response,
+                'model_name': model_name,
+                'provider': 'ollama'
+            }, "模型测试成功"))
         else:
             # 其他提供商的测试逻辑
-            test_result = {
+            print(f"🔧 使用通用测试 - 提供商: {model.get('provider')}")
+            return jsonify(ApiResponse.success({
                 'success': True,
-                'response': f"测试消息: {test_message}",
-                'model': model['name'],
-                'provider': model['provider']
-            }
+                'response': f"模型 {model.get('name')} 的测试回复：{message}",
+                'model_name': model.get('name'),
+                'provider': model.get('provider')
+            }, "模型测试成功"))
+            
     except Exception as e:
-        test_result = {
+        print(f"❌ 模型测试失败: {str(e)}")
+        return jsonify(ApiResponse.success({
             'success': False,
-            'error': str(e),
-            'model': model['name'],
-            'provider': model['provider']
-        }
-    
-    return jsonify(ApiResponse.success(test_result, "模型测试完成"))
+            'error': str(e)
+        }, "模型测试失败"))
 
 @models_bp.route('/providers', methods=['GET'])
 @token_required
 @handle_exception
 def get_model_providers(current_user):
-    """获取模型提供商列表"""
+    """
+    获取支持的模型提供商列表
+    """
     providers = [
-        {'id': 'ollama', 'name': 'Ollama', 'description': '本地模型服务'},
-        {'id': 'openai', 'name': 'OpenAI', 'description': 'OpenAI API'},
-        {'id': 'anthropic', 'name': 'Anthropic', 'description': 'Anthropic API'},
-        {'id': 'google', 'name': 'Google', 'description': 'Google AI'},
-        {'id': 'azure', 'name': 'Azure OpenAI', 'description': 'Azure OpenAI Service'}
+        {'value': 'ollama', 'label': 'Ollama'},
+        {'value': 'openai', 'label': 'OpenAI'},
+        {'value': 'local', 'label': '本地模型'},
+        {'value': 'huggingface', 'label': 'Hugging Face'}
     ]
-    
-    return jsonify(ApiResponse.success(providers, "获取模型提供商列表成功"))
+    return jsonify(ApiResponse.success(providers, "获取提供商列表成功"))
 
 @models_bp.route('/types', methods=['GET'])
 @token_required
 @handle_exception
 def get_model_types(current_user):
-    """获取模型类型列表"""
+    """
+    获取支持的模型类型列表
+    """
     types = [
-        {'id': 'chat', 'name': '聊天模型', 'description': '用于对话的模型'},
-        {'id': 'completion', 'name': '补全模型', 'description': '用于文本补全的模型'},
-        {'id': 'embedding', 'name': '嵌入模型', 'description': '用于生成嵌入向量的模型'},
-        {'id': 'image', 'name': '图像模型', 'description': '用于图像处理的模型'},
-        {'id': 'audio', 'name': '音频模型', 'description': '用于音频处理的模型'}
+        {'value': 'llm', 'label': '大语言模型'},
+        {'value': 'embedding', 'label': '嵌入模型'},
+        {'value': 'image', 'label': '图像模型'},
+        {'value': 'speech', 'label': '语音模型'}
     ]
-    
-    return jsonify(ApiResponse.success(types, "获取模型类型列表成功")) 
+    return jsonify(ApiResponse.success(types, "获取模型类型列表成功"))
 
 @models_bp.route('/ollama/health', methods=['GET'])
 @token_required
 @handle_exception
 def check_ollama_health(current_user):
-    """检查Ollama服务器状态"""
+    """
+    检查Ollama服务器状态
+    """
     from app.services.ollama import OllamaService
     
     # 获取用户配置中的Ollama地址
@@ -448,21 +443,27 @@ def check_ollama_health(current_user):
     server_url = request.args.get('server_url', default_ollama_url)
     print(f"🔍 检查Ollama健康状态: {server_url}")
     
-    ollama_service = OllamaService(server_url)
-    is_healthy = ollama_service.health_check()
-    
-    print(f"🏥 Ollama健康检查结果: {is_healthy}")
-    
-    return jsonify(ApiResponse.success({
-        'healthy': is_healthy,
-        'server_url': server_url
-    }, "Ollama服务器状态检查完成"))
+    try:
+        ollama_service = OllamaService(server_url)
+        is_healthy = ollama_service.health_check()
+        
+        print(f"🏥 Ollama健康检查结果: {is_healthy}")
+        
+        return jsonify(ApiResponse.success({
+            'healthy': is_healthy,
+            'server_url': server_url
+        }, "Ollama服务器状态检查完成"))
+    except Exception as e:
+        print(f"❌ Ollama健康检查失败: {str(e)}")
+        return jsonify(ApiResponse.error(f"Ollama健康检查失败: {str(e)}")), 500
 
 @models_bp.route('/ollama/models', methods=['GET'])
 @token_required
 @handle_exception
 def get_ollama_models(current_user):
-    """获取Ollama可用模型列表"""
+    """
+    获取Ollama可用模型列表
+    """
     from app.services.ollama import OllamaService
     
     # 获取用户配置中的Ollama地址
@@ -483,18 +484,27 @@ def get_ollama_models(current_user):
     server_url = request.args.get('server_url', default_ollama_url)
     print(f"📋 获取Ollama模型列表: {server_url}")
     
-    ollama_service = OllamaService(server_url)
-    models = ollama_service.list_models()
-    
-    print(f"✅ 获取到 {len(models)} 个Ollama模型")
-    
-    return jsonify(ApiResponse.success(models, "获取Ollama模型列表成功"))
+    try:
+        ollama_service = OllamaService(server_url)
+        models = ollama_service.list_models()
+        
+        # OllamaService现在直接返回模型名称列表
+        model_names = models if isinstance(models, list) else []
+        
+        print(f"✅ 获取到 {len(model_names)} 个Ollama模型: {model_names}")
+        
+        return jsonify(ApiResponse.success(model_names, "获取Ollama模型列表成功"))
+    except Exception as e:
+        print(f"❌ 获取Ollama模型列表失败: {str(e)}")
+        return jsonify(ApiResponse.error(f"获取Ollama模型列表失败: {str(e)}")), 500
 
 @models_bp.route('/ollama/pull', methods=['POST'])
 @token_required
 @handle_exception
 def pull_ollama_model(current_user):
-    """拉取Ollama模型"""
+    """
+    拉取Ollama模型
+    """
     data = request.get_json()
     model_name = data.get('model_name')
     
@@ -520,20 +530,26 @@ def pull_ollama_model(current_user):
     
     print(f"📥 拉取Ollama模型: {model_name} from {server_url}")
     
-    from app.services.ollama import OllamaService
-    ollama_service = OllamaService(server_url)
-    
-    result = ollama_service.pull_model(model_name)
-    
-    print(f"✅ 模型拉取成功: {model_name}")
-    
-    return jsonify(ApiResponse.success(result, "模型拉取成功"))
+    try:
+        from app.services.ollama import OllamaService
+        ollama_service = OllamaService(server_url)
+        
+        result = ollama_service.pull_model(model_name)
+        
+        print(f"✅ 模型拉取成功: {model_name}")
+        
+        return jsonify(ApiResponse.success(result, "模型拉取成功"))
+    except Exception as e:
+        print(f"❌ 模型拉取失败: {str(e)}")
+        return jsonify(ApiResponse.error(f"模型拉取失败: {str(e)}")), 500
 
 @models_bp.route('/ollama/test', methods=['POST'])
 @token_required
 @handle_exception
 def test_ollama_model(current_user):
-    """测试Ollama模型"""
+    """
+    测试Ollama模型
+    """
     data = request.get_json()
     model_name = data.get('model_name')
     prompt = data.get('prompt', 'Hello, how are you?')
@@ -560,11 +576,23 @@ def test_ollama_model(current_user):
     
     print(f"🧪 测试Ollama模型: {model_name} with prompt: {prompt[:50]}...")
     
-    from app.services.ollama import OllamaService
-    ollama_service = OllamaService(server_url)
-    
-    result = ollama_service.generate(model_name, prompt)
-    
-    print(f"✅ 模型测试成功: {model_name}")
-    
-    return jsonify(ApiResponse.success(result, "模型测试成功")) 
+    try:
+        from app.services.ollama import OllamaService
+        ollama_service = OllamaService(server_url)
+        
+        result = ollama_service.generate_text(model_name, prompt)
+        
+        print(f"✅ 模型测试成功: {model_name}")
+        
+        return jsonify(ApiResponse.success({
+            'success': True,
+            'response': result,
+            'model_name': model_name,
+            'provider': 'ollama'
+        }, "模型测试成功"))
+    except Exception as e:
+        print(f"❌ 模型测试失败: {str(e)}")
+        return jsonify(ApiResponse.success({
+            'success': False,
+            'error': str(e)
+        }, "模型测试失败")) 

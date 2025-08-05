@@ -87,6 +87,7 @@ class OllamaService:
             
             if _is_main_process:
                 print(f"📊 响应状态码: {response.status_code}")
+                print(f"📊 响应内容: {response.text[:200]}...")
             
             if response.status_code != 200:
                 if _is_main_process:
@@ -95,9 +96,28 @@ class OllamaService:
             
             result = response.json()
             models = result.get('models', [])
+            
             if _is_main_process:
                 print(f"✅ 发现 {len(models)} 个模型")
-            return models
+                print(f"📋 模型列表: {models}")
+            
+            # 确保返回的是模型名称列表
+            model_names = []
+            for model in models:
+                if isinstance(model, dict):
+                    # 如果是字典，提取name字段
+                    if 'name' in model:
+                        model_names.append(model['name'])
+                    elif 'model' in model:
+                        model_names.append(model['model'])
+                elif isinstance(model, str):
+                    # 如果是字符串，直接使用
+                    model_names.append(model)
+            
+            if _is_main_process:
+                print(f"📋 提取的模型名称: {model_names}")
+            
+            return model_names
             
         except requests.exceptions.ConnectionError as e:
             if _is_main_process:
