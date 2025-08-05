@@ -552,33 +552,15 @@ def stream_chat(current_user):
             print(f"❌ 查询目标失败: {str(e)}")
             return jsonify(ApiResponse.error(f'查询目标失败: {str(e)}')), 500
         
-        # 保存用户消息
-        try:
-            user_message = {
-                'conversation_id': ObjectId(conversation_id),  # 确保保存为ObjectId类型
-                'content': content,
-                'type': 'user',
-                'attachments': attachments,
-                'metadata': {
-                    'show_thinking': show_thinking,
-                    'model_id': model_id
-                },
-                'user_id': current_user['id'],
-                'created_at': datetime.now()
-            }
-            
-            message_result = db.messages.insert_one(user_message)
-            user_message_id = str(message_result.inserted_id)
-            print(f"✅ 用户消息保存成功: {user_message_id}")
-            
-            # 更新对话时间
-            db.conversations.update_one(
-                {'_id': ObjectId(conversation_id)},
-                {'$set': {'updated_at': datetime.now()}}
-            )
-        except Exception as e:
-            print(f"❌ 保存用户消息失败: {str(e)}")
-            return jsonify(ApiResponse.error(f'保存用户消息失败: {str(e)}')), 500
+        # 注意：前端已经添加了用户消息到聊天框，后端不需要再次保存
+        # 直接开始流式生成AI回复
+        print(f"✅ 用户消息已在前端显示，开始生成AI回复")
+        
+        # 更新对话时间
+        db.conversations.update_one(
+            {'_id': ObjectId(conversation_id)},
+            {'$set': {'updated_at': datetime.now()}}
+        )
         
         def generate():
             """

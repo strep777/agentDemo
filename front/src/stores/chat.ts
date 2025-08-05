@@ -286,19 +286,8 @@ export const useChatStore = defineStore('chat', () => {
         data: file
       })) || []
       
-      // 首先添加用户消息到列表
-      const userMessage: Message = {
-        id: `user_${Date.now()}`,
-        conversation_id: conversationId,
-        content: content,
-        type: 'user',
-        attachments: attachments,
-        metadata: {},
-        user_id: getCurrentUserId(),
-        created_at: new Date().toISOString()
-      }
-      messages.value.push(userMessage)
-      console.log('✅ 用户消息已添加到列表')
+      // 注意：用户消息已经在前端添加，这里只处理AI回复
+      console.log('✅ 准备发送流式请求')
       
       // 流式获取AI回复
       const baseURL = '/api'  // 使用代理路径（通过Vite代理）
@@ -422,9 +411,10 @@ export const useChatStore = defineStore('chat', () => {
                 
                 if (data.done) {
                   console.log('✅ 流式生成完成，总长度:', fullResponse.length)
+                  
                   // 添加AI消息到列表
                   const aiMessage: Message = {
-                    id: data.message_id || `msg_${Date.now()}`,
+                    id: data.message_id || `ai_${Date.now()}`,
                     conversation_id: conversationId,
                     content: fullResponse,
                     type: 'assistant',
@@ -447,14 +437,13 @@ export const useChatStore = defineStore('chat', () => {
       } catch (error: any) {
         console.error('❌ 读取流式响应失败:', error)
         onError?.(error.message || '读取响应流失败')
+      } finally {
+        streaming.value = false
       }
-      
     } catch (error: any) {
       console.error('❌ 流式消息发送失败:', error)
-      onError?.(error.message || '发送消息失败')
-    } finally {
+      onError?.(error.message || '流式消息发送失败')
       streaming.value = false
-      console.log('🔄 流式发送结束')
     }
   }
 

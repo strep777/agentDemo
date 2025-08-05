@@ -561,6 +561,25 @@ const handleSendMessage = async () => {
     return
   }
   
+  // 立即添加用户消息到聊天框，提供即时反馈
+  const userMessage = {
+    id: `user_${Date.now()}`,
+    conversation_id: currentConversationId.value,
+    content: content,
+    type: 'user' as const,
+    attachments: files.map(file => ({
+      name: file.name,
+      size: file.size,
+      type: file.type
+    })),
+    metadata: {},
+    user_id: 'current-user',
+    created_at: new Date().toISOString()
+  }
+  
+  // 添加到消息列表
+  chatStore.messages.push(userMessage)
+  
   // 清空输入和文件
   messageText.value = ''
   uploadedFiles.value = []
@@ -569,8 +588,9 @@ const handleSendMessage = async () => {
   // 清空之前的流式消息
   streamingMessage.value = ''
   
-  // 立即滚动到底部，显示加载状态
-  forceScrollToBottom()
+  // 立即滚动到底部，显示用户消息
+  await nextTick()
+  scrollToBottom()
   
   try {
     // 构建消息数据，包含文件和深度思考设置
@@ -586,6 +606,7 @@ const handleSendMessage = async () => {
       modelId: selectedModel.value || undefined
     }
     
+    // 调用store的streamMessage方法发送消息到后端
     await chatStore.streamMessage(
       currentConversationId.value,
       content,
