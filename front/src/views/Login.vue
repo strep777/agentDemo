@@ -1,66 +1,130 @@
 <template>
-  <div class="login-container">
-    <div class="login-background">
-      <div class="gradient-circle circle-1"></div>
-      <div class="gradient-circle circle-2"></div>
-      <div class="gradient-circle circle-3"></div>
+  <div class="login-page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <div class="header-left">
+        <h1 class="page-title">用户登录</h1>
+        <p class="page-description">登录到AI智能体管理系统</p>
+      </div>
     </div>
-    
-    <div class="login-card">
-      <div class="login-header">
-        <div class="logo-container">
-          <n-icon size="48" color="#6366f1">
-            <ServerOutline />
-          </n-icon>
+
+    <!-- 登录卡片 -->
+    <div class="login-container">
+      <n-card class="login-card" hoverable>
+        <div class="login-header">
+          <div class="logo-container">
+            <n-icon size="48" color="#18a058">
+              <ServerOutline />
+            </n-icon>
+          </div>
+          <h2 class="login-title">Agent Demo</h2>
+          <p class="login-subtitle">智能体管理系统</p>
         </div>
-        <h1>Agent Demo</h1>
-        <p>智能体管理系统</p>
-      </div>
-      
-      <n-form
-        ref="formRef"
-        :model="formData"
-        :rules="rules"
-        @submit.prevent="handleLogin"
-        class="login-form"
-      >
-        <n-form-item path="username" label="用户名">
-          <n-input
-            v-model:value="formData.username"
-            placeholder="请输入用户名"
-            size="large"
-            class="login-input"
-          />
-        </n-form-item>
         
-        <n-form-item path="password" label="密码">
-          <n-input
-            v-model:value="formData.password"
-            type="password"
-            placeholder="请输入密码"
-            size="large"
-            show-password-on="click"
-            class="login-input"
-          />
-        </n-form-item>
+        <n-form
+          ref="formRef"
+          :model="formData"
+          :rules="rules"
+          @submit.prevent="handleLogin"
+          class="login-form"
+          label-placement="left"
+          label-width="auto"
+        >
+          <n-form-item path="username" label="用户名">
+            <n-input
+              v-model:value="formData.username"
+              placeholder="请输入用户名"
+              size="large"
+              class="login-input"
+            >
+              <template #prefix>
+                <n-icon>
+                  <PersonOutline />
+                </n-icon>
+              </template>
+            </n-input>
+          </n-form-item>
+          
+          <n-form-item path="password" label="密码">
+            <n-input
+              v-model:value="formData.password"
+              type="password"
+              placeholder="请输入密码"
+              size="large"
+              show-password-on="click"
+              class="login-input"
+            >
+              <template #prefix>
+                <n-icon>
+                  <LockClosedOutline />
+                </n-icon>
+              </template>
+            </n-input>
+          </n-form-item>
+          
+          <n-form-item>
+            <n-button
+              type="primary"
+              size="large"
+              block
+              :loading="loading"
+              @click="handleLogin"
+              class="login-button"
+            >
+              <template #icon>
+                <n-icon>
+                  <LogInOutline />
+                </n-icon>
+              </template>
+              登录
+            </n-button>
+          </n-form-item>
+          
+          <!-- 开发环境：跳过登录按钮 -->
+          <n-form-item v-if="isDev">
+            <n-button
+              type="info"
+              size="large"
+              block
+              @click="skipLogin"
+              class="skip-login-button"
+            >
+              <template #icon>
+                <n-icon>
+                  <RocketOutline />
+                </n-icon>
+              </template>
+              跳过登录（开发环境）
+            </n-button>
+          </n-form-item>
+        </n-form>
         
-        <n-form-item>
-          <n-button
-            type="primary"
-            size="large"
-            block
-            :loading="loading"
-            @click="handleLogin"
-            class="login-button"
-          >
-            登录
-          </n-button>
-        </n-form-item>
-      </n-form>
-      
-      <div class="login-footer">
-        <p>开发环境：使用任意用户名密码登录</p>
-      </div>
+        <div class="login-footer">
+          <n-alert type="info" :show-icon="false">
+            <template #header>
+              <div class="alert-header">
+                <n-icon>
+                  <InformationCircleOutline />
+                </n-icon>
+                <span>开发环境提示</span>
+              </div>
+            </template>
+            <div class="alert-content">
+              <p>• 使用任意用户名密码登录</p>
+              <p>• 系统会自动创建用户账户</p>
+              <p>• 支持快速体验所有功能</p>
+              <p>• 可点击"跳过登录"直接进入系统</p>
+            </div>
+          </n-alert>
+          
+          <div class="register-link">
+            <span>还没有账户？</span>
+            <n-button text type="primary" @click="goToRegister">
+              立即注册
+            </n-button>
+          </div>
+        </div>
+      </n-card>
     </div>
   </div>
 </template>
@@ -68,10 +132,24 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { ServerOutline } from '@vicons/ionicons5'
+import { useMessage } from 'naive-ui'
+import { 
+  ServerOutline, 
+  PersonOutline, 
+  LockClosedOutline, 
+  LogInOutline,
+  InformationCircleOutline,
+  RocketOutline
+} from '@vicons/ionicons5'
+import api from '@/api'
 
 const router = useRouter()
+const message = useMessage()
 const loading = ref(false)
+const formRef = ref()
+
+// 开发环境检测
+const isDev = import.meta.env.DEV
 
 const formData = reactive({
   username: '',
@@ -89,107 +167,136 @@ const rules = {
 
 const handleLogin = async () => {
   try {
+    // 验证表单
+    await formRef.value?.validate()
+    
     loading.value = true
+    
+    // 开发环境：如果没有用户，先创建用户
+    if (isDev) {
+      try {
+        // 尝试注册用户（如果用户不存在会自动创建）
+        await api.auth.register({
+          username: formData.username,
+          email: `${formData.username}@example.com`,
+          password: formData.password
+        })
+      } catch (error: any) {
+        // 如果用户已存在，继续登录流程
+        if (error.response?.status !== 400) {
+          console.error('注册失败:', error)
+        }
+      }
+    }
+    
+    // 执行登录
     const response = await api.auth.login({
       username: formData.username,
       password: formData.password
     })
     
     if (response.data.success) {
+      // 保存token和用户信息
       localStorage.setItem('token', response.data.data.token)
+      localStorage.setItem('user', JSON.stringify(response.data.data.user))
+      
       message.success('登录成功')
       router.push('/')
     } else {
       message.error(response.data.message || '登录失败')
     }
-  } catch (error) {
-    message.error('登录失败')
+  } catch (error: any) {
+    console.error('登录错误:', error)
+    
+    if (error.response?.status === 401) {
+      message.error('用户名或密码错误')
+    } else if (error.response?.status === 400) {
+      message.error(error.response.data.message || '请求参数错误')
+    } else {
+      message.error('登录失败，请检查网络连接')
+    }
   } finally {
     loading.value = false
   }
 }
+
+const skipLogin = () => {
+  if (isDev) {
+    localStorage.setItem('token', 'dev-token-12345') // 开发环境token
+    localStorage.setItem('skip_login_token', 'true') // 标记跳过登录
+    localStorage.setItem('user', JSON.stringify({ username: 'dev_user', id: 'dev-user-12345' })) // 模拟用户信息
+    message.success('开发环境跳过登录成功！')
+    router.push('/')
+  }
+}
+
+const goToRegister = () => {
+  router.push('/register')
+}
 </script>
 
 <style scoped>
-.login-container {
+/* 页面布局 */
+.login-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
   min-height: 100vh;
+  background: var(--n-color);
+  padding: 24px;
+}
+
+/* 页面头部 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.header-left {
+  flex: 1;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: bold;
+  margin: 0 0 8px 0;
+  color: var(--n-text-color);
+}
+
+.page-description {
+  margin: 0;
+  color: var(--n-text-color-3);
+}
+
+/* 登录容器 */
+.login-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f8fafc;
-  position: relative;
-  overflow: hidden;
-}
-
-.login-background {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 0;
-}
-
-.gradient-circle {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(40px);
-  opacity: 0.6;
-}
-
-.circle-1 {
-  width: 300px;
-  height: 300px;
-  background: linear-gradient(45deg, #6366f1, #8b5cf6);
-  top: -150px;
-  right: -150px;
-  animation: float 6s ease-in-out infinite;
-}
-
-.circle-2 {
-  width: 200px;
-  height: 200px;
-  background: linear-gradient(45deg, #06b6d4, #3b82f6);
-  bottom: -100px;
-  left: -100px;
-  animation: float 8s ease-in-out infinite reverse;
-}
-
-.circle-3 {
-  width: 150px;
-  height: 150px;
-  background: linear-gradient(45deg, #f59e0b, #ef4444);
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  animation: float 10s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-20px);
-  }
+  flex: 1;
+  min-height: calc(100vh - 200px);
 }
 
 .login-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 24px;
-  padding: 48px;
+  background: var(--n-color);
+  border: 1px solid var(--n-border-color);
+  border-radius: 8px;
   width: 100%;
-  max-width: 420px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  position: relative;
-  z-index: 1;
+  max-width: 480px;
+  transition: all 0.3s ease;
 }
 
+.login-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 登录头部 */
 .login-header {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 32px;
 }
 
 .logo-container {
@@ -198,47 +305,46 @@ const handleLogin = async () => {
   justify-content: center;
   width: 80px;
   height: 80px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  border-radius: 20px;
-  margin-bottom: 24px;
-  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.3);
+  background: var(--n-primary-color);
+  border-radius: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(24, 160, 88, 0.2);
 }
 
-.login-header h1 {
+.login-title {
   margin: 0 0 8px 0;
-  color: #1e293b;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  color: var(--n-text-color);
+  font-size: 24px;
+  font-weight: 600;
 }
 
-.login-header p {
+.login-subtitle {
   margin: 0;
-  color: #64748b;
-  font-size: 16px;
-  font-weight: 500;
+  color: var(--n-text-color-3);
+  font-size: 14px;
 }
 
+/* 登录表单 */
 .login-form {
   margin-bottom: 24px;
 }
 
 .login-input :deep(.n-input__input) {
-  background: rgba(248, 250, 252, 0.8);
-  border: 2px solid rgba(226, 232, 240, 0.8);
-  border-radius: 12px;
+  background: var(--n-color-2);
+  border: 1px solid var(--n-border-color);
+  border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .login-input :deep(.n-input__input:focus) {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--n-primary-color);
+  box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.1);
 }
 
 .login-button {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  background: var(--n-primary-color) !important;
   border: none !important;
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   font-weight: 600 !important;
   font-size: 16px !important;
   height: 48px !important;
@@ -246,37 +352,98 @@ const handleLogin = async () => {
 }
 
 .login-button:hover {
-  transform: translateY(-2px) !important;
-  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.3) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(24, 160, 88, 0.3) !important;
 }
 
+.skip-login-button {
+  background: var(--n-info-color) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  font-size: 16px !important;
+  height: 48px !important;
+  transition: all 0.2s ease !important;
+}
+
+.skip-login-button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3) !important;
+}
+
+/* 登录底部 */
 .login-footer {
-  text-align: center;
-  padding-top: 24px;
-  border-top: 1px solid rgba(226, 232, 240, 0.5);
+  margin-top: 24px;
 }
 
-.login-footer p {
-  margin: 0;
-  color: #94a3b8;
+.alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--n-text-color);
+}
+
+.alert-content {
+  margin-top: 8px;
+}
+
+.alert-content p {
+  margin: 4px 0;
+  color: var(--n-text-color-2);
   font-size: 14px;
-  font-weight: 500;
+}
+
+.register-link {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  color: var(--n-text-color-3);
+  font-size: 14px;
 }
 
 /* 响应式设计 */
-@media (max-width: 640px) {
-  .login-card {
-    margin: 20px;
-    padding: 32px;
+@media (max-width: 768px) {
+  .login-page {
+    padding: 16px;
   }
   
-  .login-header h1 {
-    font-size: 24px;
+  .login-container {
+    min-height: calc(100vh - 150px);
+  }
+  
+  .login-card {
+    margin: 0;
+  }
+  
+  .page-title {
+    font-size: 20px;
+  }
+  
+  .login-title {
+    font-size: 20px;
   }
   
   .logo-container {
     width: 64px;
     height: 64px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-page {
+    padding: 12px;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .login-card {
+    padding: 20px;
   }
 }
 </style>

@@ -131,6 +131,10 @@ export interface Model {
   provider: string
   parameters?: Record<string, any>
   config?: any
+  server_url?: string
+  model_size?: number
+  download_progress?: number
+  is_downloading?: boolean
   created_at: string
   updated_at: string
 } 

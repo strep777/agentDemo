@@ -402,14 +402,31 @@ const fetchAgents = async () => {
   loading.value = true
   try {
     const response = await api.agents.list()
+    console.log('🔍 Agents API响应:', response)
     if (response.data && response.data.success) {
-      agents.value = response.data.data
+      // 确保数据是数组
+      const data = response.data.data
+      agents.value = Array.isArray(data) ? data : []
+      console.log('✅ 智能体数据:', agents.value)
     } else {
       throw new Error('API响应格式错误')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('获取智能体列表失败:', error)
-    message.error('获取智能体列表失败')
+    
+    // 根据错误类型显示不同的错误信息
+    if (error.code === 'ECONNABORTED') {
+      message.error('请求超时，请检查后端服务是否正常运行')
+    } else if (error.code === 'ERR_NETWORK') {
+      message.error('网络连接失败，请检查网络连接')
+    } else if (error.response?.status === 500) {
+      message.error('服务器内部错误，请稍后重试')
+    } else if (error.response?.status === 404) {
+      message.error('API端点不存在，请检查后端配置')
+    } else {
+      message.error(`获取智能体列表失败: ${error.message || '未知错误'}`)
+    }
+    
     // 使用模拟数据
     agents.value = [
       {

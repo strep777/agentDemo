@@ -1,9 +1,10 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 import bcrypt
 import jwt
 from datetime import datetime, timedelta
 from app.services.database import get_db
 from bson import ObjectId
+import os
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -103,6 +104,29 @@ def login():
         
         # 查找用户
         user = db.users.find_one({'username': username})
+        
+        # 开发环境：如果用户不存在，自动创建用户
+        is_dev = os.environ.get('FLASK_ENV') == 'development' or current_app.debug
+        if not user and is_dev:
+            try:
+                # 创建默认用户
+                hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+                user = {
+                    'username': username,
+                    'email': f'{username}@example.com',
+                    'password': hashed_password.decode('utf-8'),
+                    'created_at': datetime.utcnow(),
+                    'updated_at': datetime.utcnow(),
+                    'role': 'user',
+                    'status': 'active'
+                }
+                result = db.users.insert_one(user)
+                user['_id'] = result.inserted_id
+                print(f"开发环境：自动创建用户 {username}")
+            except Exception as e:
+                print(f"开发环境：自动创建用户失败 {username}: {e}")
+                return jsonify({'success': False, 'message': '用户创建失败'}), 500
+        
         if not user:
             return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
         

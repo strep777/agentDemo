@@ -1,12 +1,11 @@
 import axios from 'axios'
+import { config } from '@/config'
 
 // 创建axios实例
 const instance = axios.create({
-  baseURL: '/api',  // 使用代理路径
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  baseURL: config.api.baseURL,  // 使用统一配置
+  timeout: config.api.timeout,  // 使用统一配置
+  headers: config.api.headers
 })
 
 // 请求拦截器
@@ -22,6 +21,20 @@ instance.interceptors.request.use(
       token = 'dev-token-12345'
       localStorage.setItem('token', token)
       console.log('🔧 开发环境：设置默认token:', token)
+    }
+    
+    // 开发环境：检查是否有skip_login_token标记
+    if (import.meta.env.DEV && localStorage.getItem('skip_login_token')) {
+      token = 'dev-token-12345'
+      localStorage.setItem('token', token)
+      console.log('🔧 开发环境：使用跳过登录token:', token)
+    }
+    
+    // 开发环境：如果token是skip_login_token，替换为正确的开发token
+    if (import.meta.env.DEV && token === 'skip_login_token') {
+      token = 'dev-token-12345'
+      localStorage.setItem('token', token)
+      console.log('🔧 开发环境：替换skip_login_token为dev-token-12345')
     }
     
     if (token) {
@@ -149,6 +162,7 @@ export const api = {
     update: (id: string, data: any) => instance.put(`/models/${id}`, data),
     delete: (id: string) => instance.delete(`/models/${id}`),
     test: (id: string, data: any) => instance.post(`/models/${id}/test`, data),
+    download: (id: string) => instance.get(`/models/${id}/download`),
     // Ollama相关
     checkOllamaHealth: (serverUrl?: string) => instance.get('/models/ollama/health', { 
       params: serverUrl ? { server_url: serverUrl } : {} 
@@ -164,7 +178,24 @@ export const api = {
       model_name: modelName,
       prompt: prompt,
       server_url: serverUrl || 'http://localhost:11434'
-    })
+    }),
+    // 模型管理
+    batchDelete: (ids: string[]) => instance.post('/models/batch-delete', { model_ids: ids }),
+    batchEnable: (ids: string[]) => instance.post('/models/batch-enable', { model_ids: ids }),
+    batchDisable: (ids: string[]) => instance.post('/models/batch-disable', { model_ids: ids }),
+    // 模型验证
+    validate: (data: any) => instance.post('/models/validate', data),
+    // 模型导入导出
+    export: (id: string) => instance.get(`/models/${id}/export`),
+    import: (file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      return instance.post('/models/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+    }
   },
 
   // 训练相关
@@ -194,6 +225,7 @@ export const api = {
   // 认证相关
   auth: {
     login: (credentials: any) => instance.post('/auth/login', credentials),
+    register: (userData: any) => instance.post('/auth/register', userData),
     logout: () => instance.post('/auth/logout'),
     profile: () => instance.get('/auth/profile'),
     refresh: () => instance.post('/auth/refresh')

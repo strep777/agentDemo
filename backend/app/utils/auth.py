@@ -40,9 +40,6 @@ def token_required(f):
             print("🌍 开发环境检测到")
             print(f"🔍 检查认证头: '{auth_header}'")
             print(f"🔍 环境变量检查: FLASK_ENV={os.environ.get('FLASK_ENV')}, FLASK_DEBUG={os.environ.get('FLASK_DEBUG')}")
-            print(f"🔍 期望的认证头: 'Bearer dev-token-12345'")
-            print(f"🔍 实际认证头: '{auth_header}'")
-            print(f"🔍 认证头是否匹配: {auth_header == 'Bearer dev-token-12345'}")
             
             # 开发环境下，允许空认证头或正确的认证头
             if auth_header is None or auth_header == 'Bearer dev-token-12345':
@@ -57,7 +54,15 @@ def token_required(f):
                 return f(current_user, *args, **kwargs)
             else:
                 print(f"❌ 开发环境认证失败，期望: 'Bearer dev-token-12345' 或 None，实际: '{auth_header}'")
-                return jsonify({'success': False, 'message': '开发环境认证失败'}), 401
+                # 在开发环境下，如果认证头不正确，也允许通过（更宽松的策略）
+                print("🔧 开发环境：允许不正确的认证头通过")
+                current_user = {
+                    'id': 'dev-user-12345',
+                    'username': 'dev_user',
+                    'email': 'dev@example.com',
+                    'role': 'admin'
+                }
+                return f(current_user, *args, **kwargs)
         else:
             print("🌍 生产环境检测到")
         

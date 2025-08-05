@@ -35,7 +35,7 @@ def get_models(current_user):
         query['provider'] = provider
     
     if model_type:
-        query['model_type'] = model_type
+        query['type'] = model_type  # 使用与前端一致的字段名
     
     if search:
         query['$or'] = [
@@ -63,13 +63,28 @@ def get_models(current_user):
         model['created_at'] = model['created_at'].isoformat() if model.get('created_at') else None
         model['updated_at'] = model['updated_at'].isoformat() if model.get('updated_at') else None
         
+        # 确保状态字段正确
+        if 'status' not in model or model['status'] is None:
+            model['status'] = 'active'  # 默认状态为active
+        
         # 确保所有ObjectId都转换为字符串
         if 'parameters' in model and isinstance(model['parameters'], dict):
             for key, value in model['parameters'].items():
                 if isinstance(value, ObjectId):
                     model['parameters'][key] = str(value)
         
+        # 确保字段名与前端期望一致
+        if 'model_type' in model:
+            model['type'] = model['model_type']
+            del model['model_type']
+        
+        if 'api_base' in model:
+            model['server_url'] = model['api_base']
+            del model['api_base']
+        
         del model['_id']
+        
+        print(f"  📊 模型: {model.get('name', '未知')} - 状态: {model.get('status', '未知')}")
     
     print("✅ 模型列表获取成功")
     return jsonify(ApiResponse.success({
@@ -99,6 +114,16 @@ def get_model(current_user, model_id):
     model['id'] = str(model['_id'])
     model['created_at'] = model['created_at'].isoformat() if model.get('created_at') else None
     model['updated_at'] = model['updated_at'].isoformat() if model.get('updated_at') else None
+    
+    # 确保字段名与前端期望一致
+    if 'model_type' in model:
+        model['type'] = model['model_type']
+        del model['model_type']
+    
+    if 'api_base' in model:
+        model['server_url'] = model['api_base']
+        del model['api_base']
+    
     del model['_id']
     
     return jsonify(ApiResponse.success(model, "获取模型详情成功"))
@@ -131,21 +156,21 @@ def create_model(current_user):
     model_data = {
         'name': data['name'],
         'provider': data['provider'],
-        'model_type': data['type'],  # 前端发送的是type，后端存储为model_type
+        'type': data['type'],  # 保持与前端一致的字段名
         'description': data.get('description', ''),
         'version': data.get('version', '1.0.0'),
         'api_key': data.get('api_key', ''),
-        'api_base': data.get('server_url', ''),  # 前端发送的是server_url
+        'server_url': data.get('server_url', ''),  # 保持与前端一致的字段名
         'max_tokens': data.get('max_tokens', 4096),
         'temperature': data.get('temperature', 0.7),
         'top_p': data.get('top_p', 1.0),
         'frequency_penalty': data.get('frequency_penalty', 0.0),
         'presence_penalty': data.get('presence_penalty', 0.0),
-        'parameters': data.get('parameters', {}),  # 前端发送的parameters
+        'parameters': data.get('parameters', {}),  # 保持与前端一致的字段名
         'settings': data.get('settings', {}),
         'metadata': data.get('metadata', {}),
         'is_active': data.get('is_active', True),
-        'status': 'available',  # 默认状态
+        'status': 'active',  # 默认状态，与前端保持一致
         'created_at': datetime.now(),
         'updated_at': datetime.now(),
         'stats': {
@@ -178,9 +203,9 @@ def create_model(current_user):
                 'id': str(inserted_model['_id']),
                 'name': inserted_model.get('name', ''),
                 'provider': inserted_model.get('provider', ''),
-                'model_type': inserted_model.get('model_type', ''),
+                'type': inserted_model.get('type', ''),
                 'description': inserted_model.get('description', ''),
-                'status': inserted_model.get('status', 'available')
+                'status': inserted_model.get('status', 'active')
             }
     else:
         # 如果无法获取插入的数据，使用原始数据但确保ID正确
@@ -193,14 +218,13 @@ def create_model(current_user):
                 'id': str(result.inserted_id),
                 'name': model_data.get('name', ''),
                 'provider': model_data.get('provider', ''),
-                'model_type': model_data.get('model_type', ''),
+                'type': model_data.get('type', ''),
                 'description': model_data.get('description', ''),
-                'status': model_data.get('status', 'available')
+                'status': model_data.get('status', 'active')
             }
     
-    print(f"✅ 模型创建成功: {model_data['name']}")
-    
-    return jsonify(ApiResponse.success(response_data, "模型创建成功")), 201
+    print(f"✅ 模型创建成功: {response_data}")
+    return jsonify(ApiResponse.success(response_data, "模型创建成功"))
 
 @models_bp.route('/<model_id>', methods=['PUT'])
 @token_required
@@ -238,20 +262,48 @@ def update_model(current_user, model_id):
         'updated_at': datetime.now()
     }
     
-    allowed_fields = [
-        'name', 'provider', 'model_type', 'description', 'version',
-        'api_key', 'api_base', 'max_tokens', 'temperature', 'top_p',
-        'frequency_penalty', 'presence_penalty', 'settings', 'metadata', 'is_active'
-    ]
-    for field in allowed_fields:
-        if field in data:
-            update_data[field] = data[field]
+    # 字段映射：前端字段 -> 后端字段
+    field_mapping = {
+        'name': 'name',
+        'provider': 'provider',
+        'type': 'type',  # 保持与前端一致
+        'description': 'description',
+        'version': 'version',
+        'api_key': 'api_key',
+        'server_url': 'server_url',  # 保持与前端一致
+        'max_tokens': 'max_tokens',
+        'temperature': 'temperature',
+        'top_p': 'top_p',
+        'frequency_penalty': 'frequency_penalty',
+        'presence_penalty': 'presence_penalty',
+        'parameters': 'parameters',  # 保持与前端一致
+        'settings': 'settings',
+        'metadata': 'metadata',
+        'is_active': 'is_active',
+        'status': 'status'
+    }
+    
+    # 更新允许的字段
+    for frontend_field, backend_field in field_mapping.items():
+        if frontend_field in data:
+            update_data[backend_field] = data[frontend_field]
     
     # 更新数据库
-    db.models.update_one(
+    result = db.models.update_one(
         {'_id': ObjectId(model_id)},
         {'$set': update_data}
     )
+    
+    if result.modified_count > 0:
+        # 获取更新后的模型数据
+        updated_model = db.models.find_one({'_id': ObjectId(model_id)})
+        if updated_model:
+            response_data = serialize_mongo_data(updated_model)
+            if isinstance(response_data, dict):
+                response_data['id'] = str(updated_model['_id'])
+                if '_id' in response_data:
+                    del response_data['_id']
+            return jsonify(ApiResponse.success(response_data, "模型更新成功"))
     
     return jsonify(ApiResponse.success(None, "模型更新成功"))
 
@@ -303,7 +355,7 @@ def test_model(current_user, model_id):
     try:
         if model['provider'] == 'ollama':
             # 使用模型配置的API地址
-            server_url = model.get('api_base', 'http://localhost:11434')
+            server_url = model.get('server_url', 'http://localhost:11434')
             ollama_service = OllamaService(server_url)
             response = ollama_service.chat(
                 model=model['name'],

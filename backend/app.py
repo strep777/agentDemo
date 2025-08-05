@@ -5,24 +5,14 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-
-# 全局变量声明 - 通过环境变量判断
-_is_main_process = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+# 创建Flask应用
+app = Flask(__name__)
 
 # 设置开发环境
 if not os.environ.get('FLASK_ENV'):
     os.environ['FLASK_ENV'] = 'development'
 if not os.environ.get('FLASK_DEBUG'):
     os.environ['FLASK_DEBUG'] = '1'
-
-# 只在主进程中打印环境信息
-if _is_main_process:
-    print(f"🌍 环境变量设置:")
-    print(f"   FLASK_ENV: {os.environ.get('FLASK_ENV')}")
-    print(f"   FLASK_DEBUG: {os.environ.get('FLASK_DEBUG')}")
-
-# 创建Flask应用
-app = Flask(__name__)
 
 # 配置日志
 if not app.debug:
@@ -42,9 +32,9 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 app.config['MONGODB_URI'] = os.environ.get('MONGODB_URI', 'mongodb://root:qwbt123@172.16.156.100:27017/')
 app.config['OLLAMA_BASE_URL'] = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
 
-# 允许跨域请求 - 修复CORS配置
+# 允许跨域请求
 CORS(app, 
-     resources={r"/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}},
+     resources={r"/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://172.16.156.97:5173"]}},
      supports_credentials=True,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
@@ -53,10 +43,10 @@ CORS(app,
 # 初始化SocketIO
 socketio = SocketIO(
     app, 
-    cors_allowed_origins=["http://localhost:5173", "http://127.0.0.1:5173"], 
+    cors_allowed_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://172.16.156.97:5173"], 
     async_mode='eventlet',
-    logger=True,
-    engineio_logger=True
+    logger=False,
+    engineio_logger=False
 )
 
 # 延迟导入以避免循环导入
@@ -81,13 +71,9 @@ def init_database():
     try:
         from app.services.database import init_db
         init_db()
-        # 只在主进程中打印成功信息
-        if _is_main_process:
-            print("✅ 数据库连接成功")
+        app.logger.info("数据库连接成功")
     except Exception as e:
-        if _is_main_process:
-            print(f"❌ 数据库连接失败: {e}")
-            print("❌ 系统无法启动，请检查数据库连接")
+        app.logger.error(f"数据库连接失败: {e}")
         raise e
 
 # 健康检查端点
@@ -100,24 +86,18 @@ def health_check():
 def root():
     return {'status': 'healthy', 'message': 'AI Agent Management System is running'}
 
-# 调试端点
+# 调试信息端点（仅开发环境）
 @app.route('/debug')
 def debug_info():
-    return {
-        'status': 'running',
-        'port': 3000,
-        'cors_enabled': True,
-        'database_connected': True,
-        'endpoints': [
-            '/health',
-            '/api/agents',
-            '/api/conversations',
-            '/api/dashboard/stats',
-            '/api/models',
-            '/api/workflows',
-            '/api/plugins'
-        ]
-    }
+    if app.debug:
+        return {
+            'debug': True,
+            'environment': os.environ.get('FLASK_ENV', 'development'),
+            'database_uri': app.config['MONGODB_URI'],
+            'ollama_url': app.config['OLLAMA_BASE_URL']
+        }
+    else:
+        return {'error': 'Debug endpoint not available in production'}, 404
 
 # CORS预检请求处理
 @app.route('/api/<path:path>', methods=['OPTIONS'])
@@ -134,48 +114,36 @@ def handle_options(path):
 def after_request(response):
     if request.endpoint and 'stream' in request.endpoint:
         response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
-        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
     return response
 
 # WebSocket事件处理
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    app.logger.info('Client connected')
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('Client disconnected')
+    app.logger.info('Client disconnected')
 
 @socketio.on('message')
 def handle_message(data):
-    print('Received message:', data)
+    app.logger.info(f'Received message: {data}')
     socketio.emit('response', {'data': 'Message received'})
 
-if __name__ == '__main__':
-    import os
-    print('FLASK_ENV:', os.environ.get('FLASK_ENV'))
-    print('FLASK_DEBUG:', os.environ.get('FLASK_DEBUG'))
-    # 确保输出目录存在
-    os.makedirs('output', exist_ok=True)
-    os.makedirs('uploads', exist_ok=True)
-    os.makedirs('logs', exist_ok=True)
-    
-    # 注册蓝图和初始化数据库
+# 应用初始化
+def create_app():
     register_blueprints()
     init_database()
+    return app
+
+# 主程序入口
+if __name__ == '__main__':
+    app = create_app()
+    port = int(os.environ.get('PORT', 3000))
+    host = os.environ.get('HOST', '0.0.0.0')
     
-    # 只在主进程中打印启动信息
-    if _is_main_process:
-        print("🚀 AI智能体管理系统后端服务器启动中...")
-        print(f"📊 数据库连接: {app.config['MONGODB_URI']}")
-        print(f"🌐 API地址: http://localhost:3000/api")
-        print(f"🔌 WebSocket地址: ws://localhost:3000/socket.io")
-        print(f"💡 前端地址: http://localhost:5173")
-        print(f"🏥 健康检查: http://localhost:3000/health")
-        print(f"🔧 Ollama地址: {app.config['OLLAMA_BASE_URL']}")
-        print("=" * 60)
-    
-    # 启动服务器
-    socketio.run(app, host='0.0.0.0', port=3000, debug=True, use_reloader=True) 
+    app.logger.info(f'启动服务器: {host}:{port}')
+    socketio.run(app, host=host, port=port, debug=False) 

@@ -1,3 +1,6 @@
+# 聊天相关路由模块
+# 提供对话管理、消息发送、流式聊天等功能
+
 from flask import Blueprint, request, jsonify, Response, stream_template
 from app.services.database import get_db
 from app.services.ollama import OllamaService
@@ -10,7 +13,9 @@ from datetime import datetime
 import json
 import time
 
+# 创建聊天蓝图
 chat_bp = Blueprint('chat', __name__)
+# 初始化Ollama服务和聊天服务
 ollama_service = OllamaService()
 chat_service = ChatService()
 
@@ -19,7 +24,10 @@ chat_service = ChatService()
 @token_required
 @handle_exception
 def get_conversations(current_user):
-    """获取对话列表"""
+    """
+    获取对话列表
+    支持分页、搜索、按智能体筛选等功能
+    """
     try:
         print(f"🔍 获取对话列表 - 用户: {current_user['username']}")
         
@@ -34,6 +42,7 @@ def get_conversations(current_user):
         
         print(f"📝 查询参数: page={page}, limit={limit}, agent_id={agent_id}, search={search}")
         
+        # 验证分页参数
         page, limit = validate_pagination(page, limit)
         
         # 构建查询条件
@@ -104,7 +113,10 @@ def get_conversations(current_user):
 @token_required
 @handle_exception
 def create_conversation(current_user):
-    """创建新对话"""
+    """
+    创建新对话
+    支持智能体对话和模型对话两种类型
+    """
     try:
         data = request.get_json()
         print(f"📝 创建对话数据: {data}")
@@ -113,7 +125,8 @@ def create_conversation(current_user):
         if data.get('type') == 'agent':
             required_fields = ['agent_id']
         elif data.get('type') == 'model':
-            required_fields = ['model_id']
+            # 对于模型对话，不再要求必须传递model_id，因为模型选择在聊天界面进行
+            required_fields = []
         else:
             return jsonify(ApiResponse.error('对话类型必须为 agent 或 model')), 400
         
@@ -121,15 +134,25 @@ def create_conversation(current_user):
         
         db = get_db()
         
-        # 验证智能体或模型是否存在
+        # 验证智能体是否存在
         if data.get('type') == 'agent':
             agent = db.agents.find_one({'_id': ObjectId(data['agent_id'])})
             if not agent:
                 return jsonify(ApiResponse.error('智能体不存在')), 404
         elif data.get('type') == 'model':
-            model = db.models.find_one({'_id': ObjectId(data['model_id'])})
-            if not model:
-                return jsonify(ApiResponse.error('模型不存在')), 404
+            # 对于模型对话，如果提供了model_id则验证，否则不验证
+            if data.get('model_id'):
+                model = db.models.find_one({'_id': ObjectId(data['model_id'])})
+                if not model:
+                    return jsonify(ApiResponse.error('模型不存在')), 404
+            else:
+                # 如果没有提供model_id，尝试设置第一个有效模型作为默认模型
+                first_model = db.models.find_one({
+                    'status': {'$in': ['active', 'available']}
+                })
+                if first_model:
+                    data['model_id'] = str(first_model['_id'])
+                    print(f"🔄 自动设置默认模型: {first_model.get('name', '未知')}")
         
         # 创建对话数据
         conversation_data = {
@@ -178,7 +201,9 @@ def create_conversation(current_user):
 @token_required
 @handle_exception
 def get_conversation(current_user, conversation_id):
-    """获取对话详情"""
+    """
+    获取对话详情
+    """
     try:
         # 验证ID格式
         if not ObjectId.is_valid(conversation_id):
@@ -219,7 +244,10 @@ def get_conversation(current_user, conversation_id):
 @token_required
 @handle_exception
 def get_messages(current_user, conversation_id):
-    """获取对话消息"""
+    """
+    获取对话消息
+    支持分页获取消息历史
+    """
     print(f"🔍 开始获取消息 - 对话ID: {conversation_id}, 用户: {current_user['username']}")
     
     try:
@@ -302,7 +330,10 @@ def get_messages(current_user, conversation_id):
 @token_required
 @handle_exception
 def send_message(current_user):
-    """发送消息并获取AI回复"""
+    """
+    发送消息并获取AI回复
+    支持同步回复模式
+    """
     try:
         data = request.get_json()
         
@@ -431,7 +462,10 @@ def send_message(current_user):
 @token_required
 @handle_exception
 def stream_chat(current_user):
-    """流式聊天"""
+    """
+    流式聊天
+    支持实时流式回复，提供更好的用户体验
+    """
     try:
         data = request.get_json()
         
@@ -441,8 +475,12 @@ def stream_chat(current_user):
         
         conversation_id = data['conversation_id']
         content = data['content']
+        show_thinking = data.get('show_thinking', False)
+        model_id = data.get('model_id')
+        attachments = data.get('attachments', [])
         
         print(f"🔄 开始流式聊天 - 对话ID: {conversation_id}, 内容: {content[:50]}...")
+        print(f"🔧 深度思考: {show_thinking}, 模型ID: {model_id}, 附件数量: {len(attachments)}")
         
         # 验证ID格式
         if not ObjectId.is_valid(conversation_id):
@@ -474,11 +512,38 @@ def stream_chat(current_user):
                 if not agent:
                     return jsonify(ApiResponse.error('智能体不存在')), 404
                 target_name = agent['name']
+                model = None
             elif conversation.get('type') == 'model':
-                model = db.models.find_one({'_id': ObjectId(conversation['model_id'])})
-                if not model:
-                    return jsonify(ApiResponse.error('模型不存在')), 404
+                # 如果指定了模型ID，使用指定的模型，否则使用对话的默认模型
+                if model_id:
+                    model = db.models.find_one({'_id': ObjectId(model_id)})
+                    if not model:
+                        return jsonify(ApiResponse.error('指定的模型不存在')), 404
+                    print(f"✅ 使用指定模型: {model.get('name', '未知')}")
+                else:
+                    # 检查对话是否有默认模型
+                    if conversation.get('model_id'):
+                        model = db.models.find_one({'_id': ObjectId(conversation['model_id'])})
+                        if not model:
+                            return jsonify(ApiResponse.error('对话的默认模型不存在')), 404
+                        print(f"✅ 使用对话默认模型: {model.get('name', '未知')}")
+                    else:
+                        # 没有指定模型且对话也没有默认模型，尝试使用第一个有效模型
+                        first_model = db.models.find_one({
+                            'status': {'$in': ['active', 'available']}
+                        })
+                        if first_model:
+                            model = first_model
+                            print(f"✅ 使用第一个有效模型: {model.get('name', '未知')}")
+                            # 更新对话的默认模型
+                            db.conversations.update_one(
+                                {'_id': ObjectId(conversation_id)},
+                                {'$set': {'model_id': str(first_model['_id'])}}
+                            )
+                        else:
+                            return jsonify(ApiResponse.error('没有可用的模型，请先在模型管理中创建模型')), 400
                 target_name = model['name']
+                agent = None
             else:
                 return jsonify(ApiResponse.error('无效的对话类型')), 400
                 
@@ -493,8 +558,11 @@ def stream_chat(current_user):
                 'conversation_id': ObjectId(conversation_id),  # 确保保存为ObjectId类型
                 'content': content,
                 'type': 'user',
-                'attachments': data.get('attachments', []),
-                'metadata': data.get('metadata', {}),
+                'attachments': attachments,
+                'metadata': {
+                    'show_thinking': show_thinking,
+                    'model_id': model_id
+                },
                 'user_id': current_user['id'],
                 'created_at': datetime.now()
             }
@@ -513,12 +581,15 @@ def stream_chat(current_user):
             return jsonify(ApiResponse.error(f'保存用户消息失败: {str(e)}')), 500
         
         def generate():
+            """
+            生成流式响应的生成器函数
+            """
             try:
                 # 流式生成AI回复
                 full_response = ""
                 print(f"🤖 开始流式生成AI回复 - 对话类型: {conversation.get('type')}")
                 
-                if conversation.get('type') == 'agent':
+                if conversation.get('type') == 'agent' and agent:
                     # 智能体对话
                     print(f"🔧 使用智能体: {agent.get('name', '未知')}")
                     try:
@@ -534,14 +605,15 @@ def stream_chat(current_user):
                         error_msg = f"抱歉，智能体 {agent.get('name', '未知')} 暂时无法响应：{str(e)}"
                         yield f"data: {json.dumps({'chunk': error_msg})}\n\n"
                         full_response = error_msg
-                else:
+                elif conversation.get('type') == 'model' and model:
                     # 模型对话
                     print(f"🔧 使用模型: {model.get('name', '未知')}")
                     try:
                         for chunk in chat_service.stream_model_response(
                             conversation_id=conversation_id,
                             model=model,
-                            user_message=content
+                            user_message=content,
+                            show_thinking=show_thinking
                         ):
                             full_response += chunk
                             yield f"data: {json.dumps({'chunk': chunk})}\n\n"
@@ -550,6 +622,10 @@ def stream_chat(current_user):
                         error_msg = f"抱歉，模型 {model.get('name', '未知')} 暂时无法响应：{str(e)}"
                         yield f"data: {json.dumps({'chunk': error_msg})}\n\n"
                         full_response = error_msg
+                else:
+                    error_msg = "抱歉，无法找到有效的智能体或模型"
+                    yield f"data: {json.dumps({'chunk': error_msg})}\n\n"
+                    full_response = error_msg
                 
                 print(f"✅ 流式AI回复生成成功，长度: {len(full_response)}")
                 
@@ -593,12 +669,13 @@ def stream_chat(current_user):
                 yield f"data: {json.dumps({'chunk': error_msg})}\n\n"
                 yield f"data: {json.dumps({'done': True, 'message_id': None})}\n\n"
         
+        # 创建SSE响应
         response = Response(generate(), mimetype='text/event-stream')
         response.headers['Cache-Control'] = 'no-cache'
         response.headers['Connection'] = 'keep-alive'
-        response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response
         
@@ -612,7 +689,10 @@ def stream_chat(current_user):
 @token_required
 @handle_exception
 def delete_conversation(current_user, conversation_id):
-    """删除对话"""
+    """
+    删除对话
+    同时删除相关的所有消息
+    """
     try:
         print(f"🗑️ 开始删除对话: {conversation_id}")
         

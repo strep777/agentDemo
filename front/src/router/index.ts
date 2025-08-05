@@ -12,6 +12,7 @@ import Settings from '../views/Settings.vue'
 import Analytics from '../views/Analytics.vue'
 import NotFound from '../views/NotFound.vue'
 import Login from '../views/Login.vue'
+import Register from '../views/Register.vue'
 
 const routes = [
   {
@@ -23,6 +24,12 @@ const routes = [
     name: 'Login',
     component: Login,
     meta: { title: '登录' }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: Register,
+    meta: { title: '注册' }
   },
   {
     path: '/dashboard',
@@ -110,7 +117,34 @@ router.beforeEach((to, from, next) => {
     document.title = `${to.meta.title} - Agent Demo`
   }
   
-  next()
+  // 开发环境：跳过登录验证
+  if (import.meta.env.DEV) {
+    // 如果是登录或注册页面，直接进入
+    if (to.path === '/login' || to.path === '/register') {
+      next()
+      return
+    }
+    
+    // 其他页面直接放行，不检查登录状态
+    next()
+    return
+  }
+  
+  // 生产环境：检查登录状态
+  const token = localStorage.getItem('token')
+  const isLoginPage = to.path === '/login'
+  const isRegisterPage = to.path === '/register'
+  
+  if (!token && !isLoginPage && !isRegisterPage) {
+    // 未登录且不是登录/注册页面，重定向到登录页
+    next('/login')
+  } else if (token && (isLoginPage || isRegisterPage)) {
+    // 已登录但访问登录/注册页面，重定向到首页
+    next('/')
+  } else {
+    // 其他情况正常放行
+    next()
+  }
 })
 
 export default router 

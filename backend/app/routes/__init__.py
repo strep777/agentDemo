@@ -14,7 +14,7 @@ from .dashboard import dashboard_bp
 api_bp = Blueprint('api', __name__)
 
 # 注册所有子蓝图
-api_bp.register_blueprint(auth_bp)
+api_bp.register_blueprint(auth_bp, url_prefix='/auth')
 api_bp.register_blueprint(chat_bp, url_prefix='/chat')
 api_bp.register_blueprint(models_bp, url_prefix='/models')
 api_bp.register_blueprint(plugins_bp, url_prefix='/plugins')

@@ -24,7 +24,7 @@ class OllamaService:
             model = db.models.find_one({'name': model_name})
             if model:
                 return {
-                    'api_base': model.get('api_base', self.base_url),
+                    'api_base': model.get('server_url', self.base_url),
                     'api_key': model.get('api_key', ''),
                     'max_tokens': model.get('max_tokens', 4096),
                     'temperature': model.get('temperature', 0.7),

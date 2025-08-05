@@ -9,14 +9,13 @@ import type {
   PaginatedResponse,
   ApiResponse 
 } from '@/types'
+import { config } from '@/config'
 
 // 创建axios实例
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  baseURL: config.api.baseURL,  // 使用统一配置
+  timeout: config.api.timeout,  // 使用统一配置
+  headers: config.api.headers
 })
 
 // 请求拦截器
@@ -78,6 +77,7 @@ export const useChatStore = defineStore('chat', () => {
   const getConversations = async (params: PaginationParams = {}) => {
     try {
       loading.value = true
+      console.log('🔍 开始获取对话列表...')
       const response = await api.chat.conversations.list()
       
       if (response.data.success) {
@@ -96,6 +96,20 @@ export const useChatStore = defineStore('chat', () => {
       }
     } catch (error: any) {
       console.error('❌ 获取对话列表异常:', error)
+      
+      // 根据错误类型显示不同的错误信息
+      if (error.code === 'ECONNABORTED') {
+        console.error('请求超时，请检查后端服务是否正常运行')
+      } else if (error.code === 'ERR_NETWORK') {
+        console.error('网络连接失败，请检查网络连接')
+      } else if (error.response?.status === 500) {
+        console.error('服务器内部错误，请稍后重试')
+      } else if (error.response?.status === 404) {
+        console.error('API端点不存在，请检查后端配置')
+      } else {
+        console.error(`获取对话列表失败: ${error.message || '未知错误'}`)
+      }
+      
       conversations.value = []
     } finally {
       loading.value = false
@@ -106,7 +120,6 @@ export const useChatStore = defineStore('chat', () => {
   const createConversation = async (data: { 
     type: 'agent' | 'model'
     agent_id?: string
-    model_id?: string
     title?: string 
   }): Promise<Conversation | null> => {
     try {
@@ -125,7 +138,7 @@ export const useChatStore = defineStore('chat', () => {
     } catch (error: any) {
       console.error('❌ 创建对话异常:', error)
       console.error('❌ 错误详情:', error.response?.data)
-      return null
+      throw error // 重新抛出错误以便上层处理
     }
   }
 
@@ -142,6 +155,7 @@ export const useChatStore = defineStore('chat', () => {
         return null
       }
     } catch (error: any) {
+      console.error('获取对话详情失败:', error)
       return null
     } finally {
       loading.value = false
@@ -152,15 +166,24 @@ export const useChatStore = defineStore('chat', () => {
   const updateConversation = async (conversationId: string, data: Partial<Conversation>): Promise<Conversation | null> => {
     try {
       loading.value = true
-              const response = await api.chat.conversations.update(conversationId, data)
+      console.log('🔍 更新对话:', conversationId, data)
       
-      if (response.data.success) {
-        await getConversations() // 刷新列表
-        return response.data.data
+      // 由于后端没有专门的更新对话接口，我们直接更新本地数据
+      const conversationIndex = conversations.value.findIndex(c => c.id === conversationId)
+      if (conversationIndex !== -1) {
+        conversations.value[conversationIndex] = {
+          ...conversations.value[conversationIndex],
+          ...data,
+          updated_at: new Date().toISOString()
+        }
+        console.log('✅ 对话更新成功')
+        return conversations.value[conversationIndex]
       } else {
+        console.error('❌ 未找到要更新的对话')
         return null
       }
     } catch (error: any) {
+      console.error('更新对话失败:', error)
       return null
     } finally {
       loading.value = false
@@ -180,6 +203,7 @@ export const useChatStore = defineStore('chat', () => {
         return false
       }
     } catch (error: any) {
+      console.error('删除对话失败:', error)
       return false
     } finally {
       loading.value = false
@@ -232,20 +256,35 @@ export const useChatStore = defineStore('chat', () => {
         return null
       }
     } catch (error: any) {
+      console.error('发送消息失败:', error)
       return null
     } finally {
       loading.value = false
     }
   }
 
-  // 流式发送消息
+  // 流式发送消息 - 修复版本
   const streamMessage = async (conversationId: string, content: string, 
                              onChunk?: (chunk: string) => void,
                              onComplete?: (message: Message) => void,
-                             onError?: (error: string) => void) => {
+                             onError?: (error: string) => void,
+                             options?: {
+                               files?: File[]
+                               showThinking?: boolean
+                               modelId?: string
+                             }) => {
     try {
       streaming.value = true
       console.log('🔄 开始流式发送消息:', conversationId, content)
+      console.log('🔧 选项:', options)
+      
+      // 处理文件附件
+      const attachments = options?.files?.map(file => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        data: file
+      })) || []
       
       // 首先添加用户消息到列表
       const userMessage: Message = {
@@ -253,7 +292,7 @@ export const useChatStore = defineStore('chat', () => {
         conversation_id: conversationId,
         content: content,
         type: 'user',
-        attachments: [],
+        attachments: attachments,
         metadata: {},
         user_id: getCurrentUserId(),
         created_at: new Date().toISOString()
@@ -262,11 +301,32 @@ export const useChatStore = defineStore('chat', () => {
       console.log('✅ 用户消息已添加到列表')
       
       // 流式获取AI回复
-      const baseURL = '/api'  // 使用代理路径
+      const baseURL = '/api'  // 使用代理路径（通过Vite代理）
       const token = localStorage.getItem('token') || 'dev-token-12345'
       
+      // 构建请求数据
+      const requestData: any = {
+        conversation_id: conversationId,
+        content
+      }
+      
+      // 添加深度思考设置
+      if (options?.showThinking) {
+        requestData.show_thinking = true
+      }
+      
+      // 添加模型选择
+      if (options?.modelId) {
+        requestData.model_id = options.modelId
+      }
+      
+      // 添加文件附件
+      if (options?.files && options.files.length > 0) {
+        requestData.attachments = attachments
+      }
+      
       console.log('🔍 发送流式请求到:', `${baseURL}/chat/stream`)
-      console.log('🔍 请求数据:', { conversation_id: conversationId, content })
+      console.log('🔍 请求数据:', requestData)
       
       const response = await fetch(`${baseURL}/chat/stream`, {
         method: 'POST',
@@ -274,10 +334,7 @@ export const useChatStore = defineStore('chat', () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          conversation_id: conversationId,
-          content
-        })
+        body: JSON.stringify(requestData)
       })
       
       console.log('🔍 响应状态:', response.status, response.statusText)
@@ -286,7 +343,8 @@ export const useChatStore = defineStore('chat', () => {
       if (!response.ok) {
         const errorText = await response.text()
         console.error('❌ 流式请求失败:', response.status, errorText)
-        onError?.(`流式请求失败: ${response.status} - ${errorText}`)
+        const errorMessage = `流式请求失败: ${response.status} - ${errorText}`
+        onError?.(errorMessage)
         return
       }
       
@@ -423,6 +481,19 @@ export const useChatStore = defineStore('chat', () => {
       }
     } catch (error: any) {
       console.error('❌ 获取消息列表异常:', error)
+      
+      // 根据错误类型显示不同的错误信息
+      if (error.code === 'ECONNABORTED') {
+        console.error('请求超时，请检查后端服务是否正常运行')
+      } else if (error.code === 'ERR_NETWORK') {
+        console.error('网络连接失败，请检查网络连接')
+      } else if (error.response?.status === 500) {
+        console.error('服务器内部错误，请稍后重试')
+      } else if (error.response?.status === 404) {
+        console.error('API端点不存在，请检查后端配置')
+      } else {
+        console.error(`获取消息列表失败: ${error.message || '未知错误'}`)
+      }
     } finally {
       loading.value = false
     }
