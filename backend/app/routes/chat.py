@@ -12,6 +12,8 @@ from bson import ObjectId
 from datetime import datetime
 import json
 import time
+import os
+from werkzeug.utils import secure_filename
 
 # 创建聊天蓝图
 chat_bp = Blueprint('chat', __name__)
@@ -479,8 +481,25 @@ def stream_chat(current_user):
         model_id = data.get('model_id')
         attachments = data.get('attachments', [])
         
+        # 处理文件上传
+        files = []
+        if 'files' in request.files:
+            for file in request.files.getlist('files'):
+                if file and file.filename:
+                    # 保存文件到uploads目录
+                    filename = secure_filename(file.filename)
+                    file_path = os.path.join('uploads', filename)
+                    os.makedirs('uploads', exist_ok=True)
+                    file.save(file_path)
+                    files.append({
+                        'name': filename,
+                        'path': file_path,
+                        'size': os.path.getsize(file_path),
+                        'type': file.content_type
+                    })
+        
         print(f"🔄 开始流式聊天 - 对话ID: {conversation_id}, 内容: {content[:50]}...")
-        print(f"🔧 深度思考: {show_thinking}, 模型ID: {model_id}, 附件数量: {len(attachments)}")
+        print(f"🔧 深度思考: {show_thinking}, 模型ID: {model_id}, 附件数量: {len(attachments)}, 文件数量: {len(files)}")
         
         # 验证ID格式
         if not ObjectId.is_valid(conversation_id):
@@ -556,6 +575,28 @@ def stream_chat(current_user):
         # 直接开始流式生成AI回复
         print(f"✅ 用户消息已在前端显示，开始生成AI回复")
         
+        # 保存用户消息到数据库
+        try:
+            user_message = {
+                'conversation_id': ObjectId(conversation_id),
+                'content': content,
+                'type': 'user',
+                'attachments': attachments + files,  # 合并附件和文件
+                'metadata': {
+                    'files': files,
+                    'show_thinking': show_thinking,
+                    'model_id': model_id
+                },
+                'user_id': current_user['id'],
+                'created_at': datetime.now()
+            }
+            
+            user_message_result = db.messages.insert_one(user_message)
+            print(f"✅ 用户消息保存成功: {str(user_message_result.inserted_id)}")
+        except Exception as e:
+            print(f"❌ 保存用户消息失败: {str(e)}")
+            # 继续执行，不因为保存失败而中断
+        
         # 更新对话时间
         db.conversations.update_one(
             {'_id': ObjectId(conversation_id)},
@@ -618,7 +659,11 @@ def stream_chat(current_user):
                         'content': full_response,
                         'type': 'assistant',
                         'attachments': [],
-                        'metadata': {},
+                        'metadata': {
+                            'show_thinking': show_thinking,
+                            'model_id': model_id,
+                            'target_name': target_name
+                        },
                         'user_id': current_user['id'],
                         'created_at': datetime.now()
                     }
@@ -649,7 +694,7 @@ def stream_chat(current_user):
                 traceback.print_exc()
                 error_msg = f"抱歉，生成回复时遇到错误：{str(e)}"
                 yield f"data: {json.dumps({'chunk': error_msg})}\n\n"
-                yield f"data: {json.dumps({'done': True, 'message_id': None})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'message_id': None, 'error': str(e)})}\n\n"
         
         # 创建SSE响应
         response = Response(generate(), mimetype='text/event-stream')
@@ -659,10 +704,115 @@ def stream_chat(current_user):
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['X-Accel-Buffering'] = 'no'  # 禁用Nginx缓冲
         return response
         
     except Exception as e:
         print(f"❌ 流式聊天异常: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(ApiResponse.error(f"流式聊天失败: {str(e)}")), 500
+
+@chat_bp.route('/conversations/<conversation_id>', methods=['PUT'])
+@token_required
+@handle_exception
+def update_conversation(current_user, conversation_id):
+    """
+    更新对话信息
+    支持更新标题、模型ID等字段
+    """
+    try:
+        print(f"🔄 开始更新对话: {conversation_id}")
+        
+        # 验证ID格式
+        if not ObjectId.is_valid(conversation_id):
+            return jsonify(ApiResponse.error('无效的对话ID')), 400
+        
+        data = request.get_json()
+        print(f"📝 更新数据: {data}")
+        
+        db = get_db()
+        
+        # 验证对话归属
+        conversation = db.conversations.find_one({
+            '_id': ObjectId(conversation_id),
+            'user_id': current_user['id']
+        })
+        
+        if not conversation:
+            return jsonify(ApiResponse.error('对话不存在')), 404
+        
+        print(f"✅ 找到对话: {conversation.get('title', '未知')}")
+        
+        # 构建更新数据
+        update_data = {}
+        
+        if 'title' in data:
+            update_data['title'] = data['title']
+        
+        if 'model_id' in data:
+            # 验证模型是否存在
+            if data['model_id']:
+                model = db.models.find_one({'_id': ObjectId(data['model_id'])})
+                if not model:
+                    return jsonify(ApiResponse.error('指定的模型不存在')), 404
+                update_data['model_id'] = data['model_id']
+            else:
+                update_data['model_id'] = None
+        
+        if 'agent_id' in data:
+            # 验证智能体是否存在
+            if data['agent_id']:
+                agent = db.agents.find_one({'_id': ObjectId(data['agent_id'])})
+                if not agent:
+                    return jsonify(ApiResponse.error('指定的智能体不存在')), 404
+                update_data['agent_id'] = data['agent_id']
+            else:
+                update_data['agent_id'] = None
+        
+        # 添加更新时间
+        update_data['updated_at'] = datetime.now()
+        
+        print(f"💾 更新数据: {update_data}")
+        
+        # 执行更新
+        result = db.conversations.update_one(
+            {'_id': ObjectId(conversation_id)},
+            {'$set': update_data}
+        )
+        
+        if result.modified_count > 0:
+            print("✅ 对话更新成功")
+            
+            # 获取更新后的对话信息
+            updated_conversation = db.conversations.find_one({'_id': ObjectId(conversation_id)})
+            
+            if not updated_conversation:
+                return jsonify(ApiResponse.error('更新后无法找到对话')), 500
+            
+            # 格式化数据
+            updated_conversation['id'] = str(updated_conversation['_id'])
+            updated_conversation['created_at'] = updated_conversation['created_at'].isoformat() if updated_conversation.get('created_at') else None
+            updated_conversation['updated_at'] = updated_conversation['updated_at'].isoformat() if updated_conversation.get('updated_at') else None
+            
+            # 确保所有ObjectId都转换为字符串
+            if 'agent_id' in updated_conversation and updated_conversation['agent_id'] and isinstance(updated_conversation['agent_id'], ObjectId):
+                updated_conversation['agent_id'] = str(updated_conversation['agent_id'])
+            if 'model_id' in updated_conversation and updated_conversation['model_id'] and isinstance(updated_conversation['model_id'], ObjectId):
+                updated_conversation['model_id'] = str(updated_conversation['model_id'])
+            
+            del updated_conversation['_id']
+            
+            # 序列化数据以处理 ObjectId 和 datetime
+            serialized_data = serialize_mongo_data(updated_conversation)
+            
+            return jsonify(ApiResponse.success(serialized_data, "对话更新成功"))
+        else:
+            print("❌ 对话更新失败: 未找到对话进行更新")
+            return jsonify(ApiResponse.error("对话更新失败")), 500
+            
+    except Exception as e:
+        print(f"❌ 更新对话异常: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify(ApiResponse.error(str(e))), 400

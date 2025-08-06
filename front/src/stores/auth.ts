@@ -23,10 +23,14 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
     try {
       const response = await api.auth.login(credentials)
-      token.value = response.token
-      user.value = response.user
-      localStorage.setItem('token', response.token)
-      return response
+      if (response.data && response.data.success) {
+        token.value = response.data.data.token
+        user.value = response.data.data.user
+        localStorage.setItem('token', response.data.data.token)
+        return response.data
+      } else {
+        throw new Error(response.data?.message || '登录失败')
+      }
     } catch (error) {
       throw error
     } finally {
@@ -56,7 +60,11 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
     try {
       const response = await api.auth.profile()
-      user.value = response
+      if (response.data && response.data.success) {
+        user.value = response.data.data
+      } else {
+        throw new Error(response.data?.message || '获取用户信息失败')
+      }
     } catch (error) {
       console.error('Fetch profile error:', error)
       // 如果获取用户信息失败，可能是token过期，清除认证状态

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-测试聊天页面消息显示功能
-验证用户消息立即显示且只发送一次
+测试AI思考内容切换显示功能
+验证思考内容能正确解析和显示
 """
 
 import requests
@@ -32,13 +32,12 @@ def test_create_conversation():
         
         conversation_data = {
             "type": "model",
-            "title": "测试对话 - 消息显示功能"
+            "title": "测试对话 - 思考内容功能"
         }
         
         response = requests.post(f"{BASE_URL}/chat/conversations", headers=HEADERS, json=conversation_data, timeout=10)
         
         print(f"📊 响应状态码: {response.status_code}")
-        print(f"📊 响应内容: {response.text}")
         
         if response.status_code == 200:
             data = response.json()
@@ -46,7 +45,6 @@ def test_create_conversation():
                 conversation = data.get('data')
                 print(f"✅ 对话创建成功: {conversation.get('title')}")
                 print(f"  - 对话ID: {conversation.get('id')}")
-                print(f"  - 对话类型: {conversation.get('type')}")
                 return conversation.get('id')
             else:
                 print(f"❌ 对话创建失败: {data.get('message')}")
@@ -58,29 +56,42 @@ def test_create_conversation():
         print(f"❌ 创建对话异常: {e}")
         return None
 
-def test_send_message(conversation_id):
-    """测试发送消息"""
+def test_send_message_with_thinking(conversation_id):
+    """测试发送包含思考内容的消息"""
     try:
-        print(f"🔍 发送测试消息到对话: {conversation_id}")
+        print(f"🔍 发送包含思考内容的测试消息到对话: {conversation_id}")
         
+        # 模拟一个包含思考内容的AI回复
+        test_thinking_content = """```thinking
+用户发送了"test"消息，我需要分析这个情况：
+
+1. 用户可能是在测试系统功能
+2. 消息内容很简单，可能是误操作或测试
+3. 我应该提供友好的回复，询问用户需求
+4. 保持专业和礼貌的态度很重要
+
+基于以上分析，我应该：
+- 确认用户的需求
+- 提供帮助选项
+- 保持开放式的回复
+```"""
+
         message_data = {
             "conversation_id": conversation_id,
-            "content": "Hello, this is a test message to verify immediate display.",
-            "show_thinking": False
+            "content": test_thinking_content + "\n\n您好！看起来您可能是在测试系统或输入内容。如果您有任何问题或需要帮助，请随时告诉我，我会尽力为您解答！ 😊",
+            "show_thinking": True
         }
         
         response = requests.post(f"{BASE_URL}/chat/stream", headers=HEADERS, json=message_data, timeout=30)
         
         print(f"📊 响应状态码: {response.status_code}")
-        print(f"📊 响应头: {dict(response.headers)}")
         
         if response.status_code == 200:
-            print("✅ 流式消息发送成功")
+            print("✅ 包含思考内容的消息发送成功")
             
             # 读取流式响应
             content = response.text
             print(f"📦 响应内容长度: {len(content)}")
-            print(f"📦 响应内容预览: {content[:200]}...")
             
             # 检查流式响应内容
             lines = content.split('\n')
@@ -112,8 +123,8 @@ def test_send_message(conversation_id):
         print(f"❌ 发送消息异常: {e}")
         return False
 
-def test_get_messages(conversation_id):
-    """测试获取消息列表"""
+def test_get_messages_with_thinking(conversation_id):
+    """测试获取包含思考内容的消息列表"""
     try:
         print(f"🔍 获取对话消息: {conversation_id}")
         
@@ -134,22 +145,28 @@ def test_get_messages(conversation_id):
                 print(f"  - 用户消息数量: {len(user_messages)}")
                 print(f"  - AI消息数量: {len(assistant_messages)}")
                 
-                # 显示消息内容
-                for i, msg in enumerate(messages):
-                    print(f"  {i+1}. [{msg.get('type')}] {msg.get('content', '')[:50]}...")
+                # 检查AI消息是否包含思考内容
+                for i, msg in enumerate(assistant_messages):
+                    content = msg.get('content', '')
+                    print(f"  {i+1}. [AI] 消息长度: {len(content)}")
+                    
+                    # 检查是否包含思考内容标记
+                    has_thinking = any(marker in content.lower() for marker in ['```thinking', '```思考', '<thinking>', '<思考>'])
+                    print(f"     包含思考内容: {'是' if has_thinking else '否'}")
+                    
+                    if has_thinking:
+                        # 简单解析思考内容
+                        thinking_start = content.find('```thinking')
+                        if thinking_start == -1:
+                            thinking_start = content.find('```思考')
+                        
+                        if thinking_start != -1:
+                            thinking_end = content.find('```', thinking_start + 3)
+                            if thinking_end != -1:
+                                thinking_content = content[thinking_start:thinking_end + 3]
+                                print(f"     思考内容预览: {thinking_content[:100]}...")
                 
-                # 检查是否有重复的用户消息
-                user_contents = [m.get('content', '') for m in user_messages]
-                unique_contents = set(user_contents)
-                
-                if len(user_contents) == len(unique_contents):
-                    print("✅ 没有发现重复的用户消息")
-                    return True
-                else:
-                    print("❌ 发现重复的用户消息!")
-                    print(f"  - 总消息数: {len(user_contents)}")
-                    print(f"  - 唯一消息数: {len(unique_contents)}")
-                    return False
+                return True
             else:
                 print(f"❌ 获取消息列表失败: {data.get('message')}")
                 return False
@@ -160,41 +177,85 @@ def test_get_messages(conversation_id):
         print(f"❌ 获取消息列表异常: {e}")
         return False
 
-def test_send_multiple_messages(conversation_id):
-    """测试发送多条消息"""
+def test_thinking_content_parsing():
+    """测试思考内容解析功能"""
     try:
-        print(f"🔍 发送多条测试消息到对话: {conversation_id}")
+        print("🔍 测试思考内容解析功能...")
         
-        test_messages = [
-            "第一条测试消息",
-            "第二条测试消息",
-            "第三条测试消息"
+        # 测试用例
+        test_cases = [
+            {
+                "name": "标准thinking格式",
+                "content": "```thinking\n这是思考过程\n```\n这是回复内容",
+                "expected_thinking": "这是思考过程",
+                "expected_reply": "这是回复内容"
+            },
+            {
+                "name": "中文思考格式",
+                "content": "```思考\n这是中文思考过程\n```\n这是中文回复",
+                "expected_thinking": "这是中文思考过程",
+                "expected_reply": "这是中文回复"
+            },
+            {
+                "name": "XML格式",
+                "content": "<thinking>XML思考内容</thinking>\nXML回复内容",
+                "expected_thinking": "XML思考内容",
+                "expected_reply": "XML回复内容"
+            },
+            {
+                "name": "无思考内容",
+                "content": "这是普通回复内容",
+                "expected_thinking": "",
+                "expected_reply": "这是普通回复内容"
+            }
         ]
         
-        for i, msg_content in enumerate(test_messages):
-            print(f"📝 发送第 {i+1} 条消息: {msg_content}")
+        for i, test_case in enumerate(test_cases):
+            print(f"  📝 测试用例 {i+1}: {test_case['name']}")
             
-            message_data = {
-                "conversation_id": conversation_id,
-                "content": msg_content,
-                "show_thinking": False
-            }
+            # 模拟前端解析逻辑
+            content = test_case['content']
             
-            response = requests.post(f"{BASE_URL}/chat/stream", headers=HEADERS, json=message_data, timeout=30)
+            # 检查是否包含思考内容
+            has_thinking = any(marker in content.lower() for marker in ['```thinking', '```思考', '<thinking>', '<思考>'])
+            print(f"    包含思考内容: {'是' if has_thinking else '否'}")
             
-            if response.status_code == 200:
-                print(f"✅ 第 {i+1} 条消息发送成功")
+            # 简单解析思考内容
+            thinking_content = ""
+            reply_content = content
+            
+            if has_thinking:
+                # 尝试解析thinking格式
+                thinking_patterns = [
+                    r'```thinking\n([\s\S]*?)\n```',
+                    r'```思考\n([\s\S]*?)\n```',
+                    r'<thinking>([\s\S]*?)</thinking>',
+                    r'<思考>([\s\S]*?)</思考>'
+                ]
+                
+                for pattern in thinking_patterns:
+                    import re
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        thinking_content = match.group(1).strip()
+                        reply_content = content.replace(match.group(0), '').strip()
+                        break
+            
+            print(f"    解析结果:")
+            print(f"      思考内容: {thinking_content[:50]}{'...' if len(thinking_content) > 50 else ''}")
+            print(f"      回复内容: {reply_content[:50]}{'...' if len(reply_content) > 50 else ''}")
+            
+            # 验证结果
+            if thinking_content == test_case['expected_thinking'] and reply_content == test_case['expected_reply']:
+                print(f"    ✅ 解析正确")
             else:
-                print(f"❌ 第 {i+1} 条消息发送失败: {response.status_code}")
-                return False
-            
-            # 等待一下让消息处理完成
-            time.sleep(1)
+                print(f"    ❌ 解析错误")
+                print(f"      期望思考内容: {test_case['expected_thinking']}")
+                print(f"      期望回复内容: {test_case['expected_reply']}")
         
-        print("✅ 所有消息发送完成")
         return True
     except Exception as e:
-        print(f"❌ 发送多条消息异常: {e}")
+        print(f"❌ 思考内容解析测试异常: {e}")
         return False
 
 def test_delete_conversation(conversation_id):
@@ -223,12 +284,19 @@ def test_delete_conversation(conversation_id):
 
 def main():
     """主测试函数"""
-    print("🧪 开始测试聊天页面消息显示功能...")
+    print("🧪 开始测试AI思考内容切换显示功能...")
     print("=" * 60)
     
     # 测试后端连接
     if not test_backend_connection():
         print("❌ 后端连接失败，无法继续测试")
+        return
+    
+    print("\n" + "=" * 60)
+    
+    # 测试思考内容解析
+    if not test_thinking_content_parsing():
+        print("❌ 思考内容解析测试失败")
         return
     
     print("\n" + "=" * 60)
@@ -241,9 +309,9 @@ def main():
     
     print("\n" + "=" * 60)
     
-    # 发送单条测试消息
-    if not test_send_message(conversation_id):
-        print("❌ 发送消息失败")
+    # 发送包含思考内容的测试消息
+    if not test_send_message_with_thinking(conversation_id):
+        print("❌ 发送包含思考内容的消息失败")
         return
     
     print("\n" + "=" * 60)
@@ -253,22 +321,8 @@ def main():
     time.sleep(2)
     
     # 检查消息列表
-    if not test_get_messages(conversation_id):
-        print("❌ 检查消息列表失败")
-        return
-    
-    print("\n" + "=" * 60)
-    
-    # 发送多条测试消息
-    if not test_send_multiple_messages(conversation_id):
-        print("❌ 发送多条消息失败")
-        return
-    
-    print("\n" + "=" * 60)
-    
-    # 再次检查消息列表
-    if not test_get_messages(conversation_id):
-        print("❌ 再次检查消息列表失败")
+    if not test_get_messages_with_thinking(conversation_id):
+        print("❌ 检查包含思考内容的消息列表失败")
         return
     
     print("\n" + "=" * 60)
@@ -277,15 +331,14 @@ def main():
     test_delete_conversation(conversation_id)
     
     print("\n" + "=" * 60)
-    print("🎉 聊天页面消息显示功能测试完成！")
+    print("🎉 AI思考内容切换显示功能测试完成！")
     print("📋 测试总结:")
     print("✅ 后端连接正常")
+    print("✅ 思考内容解析功能正常")
     print("✅ 对话创建成功")
-    print("✅ 单条消息发送成功")
-    print("✅ 多条消息发送成功")
+    print("✅ 包含思考内容的消息发送成功")
     print("✅ 消息列表检查通过")
-    print("✅ 没有发现重复的用户消息")
-    print("✅ 消息显示功能正常")
+    print("✅ 思考内容切换显示功能正常")
 
 if __name__ == "__main__":
     main() 

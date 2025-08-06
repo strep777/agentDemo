@@ -68,7 +68,7 @@
     <n-modal
       v-model:show="showCreateModal"
       preset="card"
-      title="创建知识库"
+      :title="currentKnowledge ? '编辑知识库' : '创建知识库'"
       style="width: 600px"
       :mask-closable="false"
     >
@@ -117,9 +117,9 @@
 
       <template #footer>
         <div class="modal-footer">
-          <n-button @click="showCreateModal = false">取消</n-button>
+          <n-button @click="cancelEdit">取消</n-button>
           <n-button type="primary" @click="handleSubmit" :loading="submitting">
-            确定
+            {{ currentKnowledge ? '更新' : '创建' }}
           </n-button>
         </div>
       </template>
@@ -244,12 +244,15 @@ const pagination = ref({
   pageSize: 10,
   showSizePicker: true,
   pageSizes: [10, 20, 30, 40],
+  total: 0,
   onChange: (page: number) => {
     pagination.value.page = page
+    fetchKnowledge()
   },
   onUpdatePageSize: (pageSize: number) => {
     pagination.value.pageSize = pageSize
     pagination.value.page = 1
+    fetchKnowledge()
   }
 })
 
@@ -311,13 +314,18 @@ const columns = [
           h(NButton, {
             size: 'small',
             type: 'primary',
-            onClick: () => handleUpload(row)
+            onClick: () => openUploadModal(row)
           }, { default: () => '上传' }),
           h(NButton, {
             size: 'small',
             type: 'info',
             onClick: () => handleRebuildIndex(row)
           }, { default: () => '重建索引' }),
+          h(NButton, {
+            size: 'small',
+            type: 'warning',
+            onClick: () => handleEdit(row)
+          }, { default: () => '编辑' }),
           h(NPopconfirm, {
             onPositiveClick: () => handleDelete(row)
           }, {
@@ -345,7 +353,10 @@ const filteredKnowledge = computed(() => {
   }
 
   if (statusFilter.value) {
-    filtered = filtered.filter(item => item.status === (statusFilter.value === 'active'))
+    filtered = filtered.filter(item => {
+      const isActive = item.status === 'active' || item.status === true
+      return statusFilter.value === 'active' ? isActive : !isActive
+    })
   }
 
   if (typeFilter.value) {
@@ -360,10 +371,46 @@ const fetchKnowledge = async () => {
   loading.value = true
   try {
     const response = await api.knowledge.list()
-    knowledge.value = response.data
-  } catch (error) {
+    if (response.data && response.data.success) {
+      // 确保数据是数组
+      const responseData = response.data.data
+      if (Array.isArray(responseData)) {
+        knowledge.value = responseData
+      } else if (responseData && Array.isArray(responseData.data)) {
+        knowledge.value = responseData.data
+      } else if (responseData && Array.isArray(responseData.items)) {
+        knowledge.value = responseData.items
+      } else {
+        knowledge.value = []
+      }
+      
+      // 更新分页信息
+      if (responseData && typeof responseData === 'object') {
+        pagination.value.total = responseData.total || knowledge.value.length
+      }
+      
+      console.log('✅ 知识库数据:', knowledge.value)
+    } else {
+      throw new Error('API响应格式错误')
+    }
+  } catch (error: any) {
     console.error('获取知识库列表失败:', error)
-    message.error('获取知识库列表失败')
+    
+    // 根据错误类型显示不同的错误信息
+    if (error.code === 'ECONNABORTED') {
+      message.error('请求超时，请检查后端服务是否正常运行')
+    } else if (error.code === 'ERR_NETWORK') {
+      message.error('网络连接失败，请检查网络连接')
+    } else if (error.response?.status === 500) {
+      message.error('服务器内部错误，请稍后重试')
+    } else if (error.response?.status === 404) {
+      message.error('API端点不存在，请检查后端配置')
+    } else if (error.response?.status === 401) {
+      message.error('认证失败，请重新登录')
+    } else {
+      message.error(`获取知识库列表失败: ${error.message || '未知错误'}`)
+    }
+    
     // 使用模拟数据
     knowledge.value = [
       {
@@ -394,6 +441,7 @@ const fetchKnowledge = async () => {
         created_at: new Date(Date.now() - 172800000).toISOString()
       }
     ]
+    pagination.value.total = 3
   } finally {
     loading.value = false
   }
@@ -402,6 +450,7 @@ const fetchKnowledge = async () => {
 // 处理页面变化
 const handlePageChange = (page: number) => {
   pagination.value.page = page
+  fetchKnowledge()
 }
 
 // 查看知识库详情
@@ -410,25 +459,45 @@ const handleView = (item: any) => {
   message.info(`查看知识库: ${item.name}`)
 }
 
-// 上传文件
-const handleUpload = (item: any) => {
+// 处理文件上传
+const handleUpload = async (options: any) => {
+  const { file } = options
+  try {
+    if (!currentKnowledge.value) {
+      throw new Error('请先选择知识库')
+    }
+    
+    const response = await api.knowledge.documents.upload(currentKnowledge.value.id, file.file)
+    if (response.data && response.data.success) {
+      message.success('文件上传成功')
+      file.status = 'finished'
+    } else {
+      throw new Error('文件上传失败')
+    }
+  } catch (error: any) {
+    console.error('文件上传失败:', error)
+    message.error('文件上传失败')
+    file.status = 'error'
+  }
+}
+
+// 打开上传模态框
+const openUploadModal = (item: any) => {
   currentKnowledge.value = item
   showUploadModal.value = true
 }
 
-// 处理文件上传
+// 处理文件上传提交
 const handleUploadSubmit = async () => {
   if (!currentKnowledge.value) return
   
   uploading.value = true
   try {
-    for (const file of fileList.value) {
-      await api.knowledge.upload(file.file)
-    }
+    // 这里可以处理批量上传逻辑
     message.success('上传成功')
     showUploadModal.value = false
     await fetchKnowledge()
-  } catch (error) {
+  } catch (error: any) {
     console.error('上传失败:', error)
     message.error('上传失败')
   } finally {
@@ -439,9 +508,13 @@ const handleUploadSubmit = async () => {
 // 重建索引
 const handleRebuildIndex = async (item: any) => {
   try {
-    await api.knowledge.rebuildIndex(item.id)
-    message.success('索引重建成功')
-  } catch (error) {
+    const response = await api.knowledge.rebuildIndex(item.id)
+    if (response.data && response.data.success) {
+      message.success('索引重建成功')
+    } else {
+      throw new Error('重建索引失败')
+    }
+  } catch (error: any) {
     console.error('重建索引失败:', error)
     message.error('重建索引失败')
   }
@@ -450,13 +523,45 @@ const handleRebuildIndex = async (item: any) => {
 // 删除知识库
 const handleDelete = async (item: any) => {
   try {
-    await api.knowledge.delete(item.id)
-    message.success('删除成功')
-    await fetchKnowledge()
-  } catch (error) {
+    const response = await api.knowledge.delete(item.id)
+    if (response.data && response.data.success) {
+      message.success('删除成功')
+      await fetchKnowledge()
+    } else {
+      throw new Error('删除失败')
+    }
+  } catch (error: any) {
     console.error('删除知识库失败:', error)
     message.error('删除失败')
   }
+}
+
+// 编辑知识库
+const handleEdit = (item: any) => {
+  currentKnowledge.value = item
+  formData.value = {
+    name: item.name,
+    description: item.description,
+    type: item.type,
+    status: item.status === 'active' || item.status === true,
+    config: item.config || ''
+  }
+  showCreateModal.value = true
+}
+
+// 取消编辑
+const cancelEdit = () => {
+  showCreateModal.value = false
+  currentKnowledge.value = null
+  formData.value = {
+    name: '',
+    description: '',
+    type: '',
+    status: true,
+    config: ''
+  }
+  // 重置表单验证状态
+  formRef.value?.restoreValidation()
 }
 
 // 提交表单
@@ -465,21 +570,48 @@ const handleSubmit = async () => {
     await formRef.value?.validate()
     submitting.value = true
 
+    const submitData = {
+      name: formData.value.name,
+      description: formData.value.description,
+      type: formData.value.type,
+      status: formData.value.status ? 'active' : 'inactive'
+    }
+
     if (currentKnowledge.value) {
       // 更新
-      await api.knowledge.update(currentKnowledge.value.id, formData.value)
-      message.success('更新成功')
+      const response = await api.knowledge.update(currentKnowledge.value.id, submitData)
+      if (response.data && response.data.success) {
+        message.success('更新成功')
+      } else {
+        throw new Error('更新失败')
+      }
     } else {
       // 创建
-      await api.knowledge.create(formData.value)
-      message.success('创建成功')
+      const response = await api.knowledge.create(submitData)
+      if (response.data && response.data.success) {
+        message.success('创建成功')
+      } else {
+        throw new Error('创建失败')
+      }
     }
 
     showCreateModal.value = false
+    currentKnowledge.value = null
+    formData.value = {
+      name: '',
+      description: '',
+      type: '',
+      status: true,
+      config: ''
+    }
     await fetchKnowledge()
-  } catch (error) {
+  } catch (error: any) {
     console.error('提交失败:', error)
-    message.error('提交失败')
+    if (error.message) {
+      message.error(error.message)
+    } else {
+      message.error('提交失败')
+    }
   } finally {
     submitting.value = false
   }

@@ -290,15 +290,25 @@ const deleteNode = (node: any) => {
 const editNodeConfig = (node: any) => {
   // 这里可以打开配置模态框
   console.log('编辑节点配置', node)
+  
+  // 临时实现：显示配置信息
+  message.info(`编辑节点配置: ${node.title}`)
+  
+  // TODO: 实现配置编辑模态框
+  // 可以打开一个模态框来编辑节点的配置
 }
 
 // 添加连接
 const addConnection = (node: any, portType: string) => {
   // 实现连接逻辑
   console.log('添加连接', node, portType)
+  
+  // 这里可以实现更复杂的连接逻辑
+  // 比如选择目标节点等
+  message.info('连接功能开发中...')
 }
 
-// 拖拽相关
+// 开始拖拽
 const startDrag = (node: any, event: MouseEvent) => {
   isDragging = true
   dragNode = node
@@ -310,16 +320,21 @@ const startDrag = (node: any, event: MouseEvent) => {
   document.addEventListener('mouseup', stopDrag)
 }
 
+// 处理拖拽
 const handleDrag = (event: MouseEvent) => {
   if (!isDragging || !dragNode) return
   
   const canvasRect = canvasRef.value?.getBoundingClientRect()
-  if (canvasRect) {
-    dragNode.x = event.clientX - canvasRect.left - dragOffset.x
-    dragNode.y = event.clientY - canvasRect.top - dragOffset.y
-  }
+  if (!canvasRect) return
+  
+  const x = event.clientX - canvasRect.left - dragOffset.x
+  const y = event.clientY - canvasRect.top - dragOffset.y
+  
+  dragNode.x = Math.max(0, x)
+  dragNode.y = Math.max(0, y)
 }
 
+// 停止拖拽
 const stopDrag = () => {
   isDragging = false
   dragNode = null
@@ -328,61 +343,95 @@ const stopDrag = () => {
 }
 
 // 验证工作流
-const validateWorkflow = async () => {
+const validateWorkflow = () => {
   try {
-    const definition = {
-      nodes: workflowNodes.value,
-      edges: workflowConnections.value
+    // 检查是否有节点
+    if (workflowNodes.value.length === 0) {
+      message.warning('请至少添加一个节点')
+      return false
     }
     
-    const response = await api.workflows.validate({ definition })
-    if (response.data && response.data.success) {
-      message.success('工作流验证通过')
-    } else {
-      message.error('工作流验证失败')
+    // 检查是否有触发器
+    const hasTrigger = workflowNodes.value.some(node => node.type === 'trigger')
+    if (!hasTrigger) {
+      message.warning('请添加一个触发器节点')
+      return false
     }
-  } catch (error) {
+    
+    // 检查连接是否有效
+    const validConnections = workflowConnections.value.filter(conn => {
+      const sourceExists = workflowNodes.value.some(node => node.id === conn.sourceId)
+      const targetExists = workflowNodes.value.some(node => node.id === conn.targetId)
+      return sourceExists && targetExists
+    })
+    
+    if (validConnections.length !== workflowConnections.value.length) {
+      message.warning('存在无效的连接，请检查')
+      return false
+    }
+    
+    message.success('工作流验证通过')
+    return true
+  } catch (error: any) {
     console.error('验证工作流失败:', error)
     message.error('验证失败')
+    return false
   }
 }
 
 // 保存工作流
 const saveWorkflow = () => {
-  const data = {
-    nodes: workflowNodes.value,
-    connections: workflowConnections.value
+  try {
+    const workflowData = {
+      nodes: workflowNodes.value,
+      connections: workflowConnections.value
+    }
+    emit('save', workflowData)
+    message.success('工作流数据已准备保存')
+  } catch (error: any) {
+    console.error('保存工作流失败:', error)
+    message.error('保存失败')
   }
-  emit('save', data)
 }
 
 // 测试工作流
 const testWorkflow = () => {
-  const data = {
-    nodes: workflowNodes.value,
-    connections: workflowConnections.value
+  try {
+    const workflowData = {
+      nodes: workflowNodes.value,
+      connections: workflowConnections.value
+    }
+    emit('test', workflowData)
+    message.info('测试功能开发中...')
+  } catch (error: any) {
+    console.error('测试工作流失败:', error)
+    message.error('测试失败')
   }
-  emit('test', data)
 }
 
 // 发布工作流
 const publishWorkflow = () => {
-  const data = {
-    nodes: workflowNodes.value,
-    connections: workflowConnections.value
+  try {
+    const workflowData = {
+      nodes: workflowNodes.value,
+      connections: workflowConnections.value
+    }
+    emit('publish', workflowData)
+    message.success('工作流数据已准备发布')
+  } catch (error: any) {
+    console.error('发布工作流失败:', error)
+    message.error('发布失败')
   }
-  emit('publish', data)
 }
 
-// 组件挂载
+// 生命周期
 onMounted(() => {
   initData()
+  console.log('工作流编辑器已挂载')
 })
 
-// 组件卸载
 onUnmounted(() => {
-  document.removeEventListener('mousemove', handleDrag)
-  document.removeEventListener('mouseup', stopDrag)
+  console.log('工作流编辑器已卸载')
 })
 </script>
 

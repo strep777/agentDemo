@@ -72,23 +72,27 @@ instance.interceptors.response.use(
 export const api = {
   // 代理相关
   agents: {
-    list: () => instance.get('/agents'),
+    list: (params?: any) => instance.get('/agents', { params }),
     get: (id: string) => instance.get(`/agents/${id}`),
     create: (data: any) => instance.post('/agents', data),
     update: (id: string, data: any) => instance.put(`/agents/${id}`, data),
-    delete: (id: string) => instance.delete(`/agents/${id}`)
+    delete: (id: string) => instance.delete(`/agents/${id}`),
+    stats: (id: string) => instance.get(`/agents/${id}/stats`),
+    conversations: (id: string) => instance.get(`/agents/${id}/conversations`)
   },
 
   // 聊天相关
   chat: {
     send: (data: any) => instance.post('/chat/send', data),
+    stream: (data: any) => instance.post('/chat/stream', data),
     history: () => instance.get('/chat/history'),
     conversations: {
       list: () => instance.get('/chat/conversations'),
       get: (id: string) => instance.get(`/chat/conversations/${id}`),
       create: (data: any) => instance.post('/chat/conversations', data),
       update: (id: string, data: any) => instance.put(`/chat/conversations/${id}`, data),
-      delete: (id: string) => instance.delete(`/chat/conversations/${id}`)
+      delete: (id: string) => instance.delete(`/chat/conversations/${id}`),
+      messages: (id: string) => instance.get(`/chat/conversations/${id}/messages`)
     }
   },
 
@@ -109,13 +113,24 @@ export const api = {
       })
     },
     rebuildIndex: (id: string) => instance.post(`/knowledge/${id}/rebuild-index`),
-    export: (id: string) => instance.get(`/knowledge/${id}/export`),
-    batchDelete: (data: any) => instance.post('/knowledge/batch-delete', data)
+    documents: {
+      list: (id: string) => instance.get(`/knowledge/${id}/documents`),
+      upload: (id: string, file: File) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        return instance.post(`/knowledge/${id}/documents`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        })
+      },
+      delete: (id: string, docId: string) => instance.delete(`/knowledge/${id}/documents/${docId}`)
+    }
   },
 
   // 工作流相关
   workflows: {
-    list: () => instance.get('/workflows'),
+    list: (params?: any) => instance.get('/workflows', { params }),
     get: (id: string) => instance.get(`/workflows/${id}`),
     create: (data: any) => instance.post('/workflows', data),
     update: (id: string, data: any) => instance.put(`/workflows/${id}`, data),
@@ -130,16 +145,13 @@ export const api = {
 
   // 插件相关
   plugins: {
-    list: () => instance.get('/plugins'),
+    list: (params?: any) => instance.get('/plugins', { params }),
     get: (id: string) => instance.get(`/plugins/${id}`),
     create: (data: any) => instance.post('/plugins', data),
     update: (id: string, data: any) => instance.put(`/plugins/${id}`, data),
     delete: (id: string) => instance.delete(`/plugins/${id}`),
-    install: (id: string) => instance.post(`/plugins/${id}/install`),
-    uninstall: (id: string) => instance.post(`/plugins/${id}/uninstall`),
     toggleStatus: (id: string) => instance.put(`/plugins/${id}/toggle`),
-    test: (id: string) => instance.post(`/plugins/${id}/test`),
-    download: (id: string) => instance.get(`/plugins/${id}/download`),
+    test: (id: string, data: any) => instance.post(`/plugins/${id}/test`, data),
     upload: (file: File) => {
       const formData = new FormData()
       formData.append('file', file)

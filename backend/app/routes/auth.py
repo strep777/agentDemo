@@ -104,29 +104,6 @@ def login():
         
         # 查找用户
         user = db.users.find_one({'username': username})
-        
-        # 开发环境：如果用户不存在，自动创建用户
-        is_dev = os.environ.get('FLASK_ENV') == 'development' or current_app.debug
-        if not user and is_dev:
-            try:
-                # 创建默认用户
-                hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-                user = {
-                    'username': username,
-                    'email': f'{username}@example.com',
-                    'password': hashed_password.decode('utf-8'),
-                    'created_at': datetime.utcnow(),
-                    'updated_at': datetime.utcnow(),
-                    'role': 'user',
-                    'status': 'active'
-                }
-                result = db.users.insert_one(user)
-                user['_id'] = result.inserted_id
-                print(f"开发环境：自动创建用户 {username}")
-            except Exception as e:
-                print(f"开发环境：自动创建用户失败 {username}: {e}")
-                return jsonify({'success': False, 'message': '用户创建失败'}), 500
-        
         if not user:
             return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
         
@@ -149,19 +126,20 @@ def login():
                 'user': {
                     'id': str(user['_id']),
                     'username': user['username'],
-                    'email': user['email'],
+                    'email': user.get('email', ''),
                     'role': user.get('role', 'user')
                 }
             }
-        }), 200
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'message': f'登录失败: {str(e)}'}), 500
 
 @auth_bp.route('/profile', methods=['GET'])
 def get_profile():
-    """获取用户信息"""
+    """获取用户资料"""
     try:
+        # 从请求头获取token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
             return jsonify({'success': False, 'message': '未提供有效的认证token'}), 401
@@ -180,20 +158,29 @@ def get_profile():
         
         return jsonify({
             'success': True,
+            'message': '获取用户资料成功',
             'data': {
                 'id': str(user['_id']),
                 'username': user['username'],
-                'email': user['email'],
+                'email': user.get('email', ''),
                 'role': user.get('role', 'user'),
-                'created_at': user['created_at'].isoformat() if user.get('created_at') else None
+                'created_at': user.get('created_at', '').isoformat() if user.get('created_at') else None
             }
-        }), 200
+        })
         
     except Exception as e:
-        return jsonify({'success': False, 'message': f'获取用户信息失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'获取用户资料失败: {str(e)}'}), 500
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
     """用户登出"""
-    # 由于使用JWT，客户端只需要删除token即可
-    return jsonify({'success': True, 'message': '登出成功'}), 200 
+    try:
+        # 在JWT中，登出通常是在客户端删除token
+        # 这里可以添加token黑名单逻辑（如果需要）
+        return jsonify({
+            'success': True,
+            'message': '登出成功'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'登出失败: {str(e)}'}), 500 

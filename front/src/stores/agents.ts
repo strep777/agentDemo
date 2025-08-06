@@ -36,15 +36,15 @@ export const useAgentsStore = defineStore('agents', () => {
       const response = await api.agents.list()
       console.log('📊 智能体列表响应:', response)
       
-      if (response.data.success) {
-        // 处理不同的响应格式
-        let agentData = response.data.data
-        if (Array.isArray(agentData)) {
-          agents.value = agentData
-        } else if (agentData && Array.isArray(agentData.data)) {
-          agents.value = agentData.data
-        } else if (agentData && Array.isArray(agentData.items)) {
-          agents.value = agentData.items
+      if (response.data && response.data.success) {
+        // 处理响应数据
+        const responseData = response.data.data
+        if (Array.isArray(responseData)) {
+          agents.value = responseData
+        } else if (responseData && Array.isArray(responseData.data)) {
+          agents.value = responseData.data
+        } else if (responseData && Array.isArray(responseData.items)) {
+          agents.value = responseData.items
         } else {
           agents.value = []
         }
@@ -52,15 +52,19 @@ export const useAgentsStore = defineStore('agents', () => {
         // 确保智能体数据的一致性
         agents.value = agents.value.filter(agent => 
           agent && agent.id && agent.name && 
-          (agent.status === 'active' || agent.status === 'available')
+          (agent.status === 'active' || agent.status === 'inactive')
         )
         
-        pagination.value = {
-          page: response.data.data.page || 1,
-          page_size: response.data.data.page_size || 20,
-          total: response.data.data.total || agents.value.length,
-          pages: response.data.data.pages || 1
+        // 更新分页信息
+        if (responseData && typeof responseData === 'object') {
+          pagination.value = {
+            page: responseData.page || 1,
+            page_size: responseData.page_size || 20,
+            total: responseData.total || agents.value.length,
+            pages: responseData.pages || 1
+          }
         }
+        
         console.log('✅ 获取智能体列表成功:', agents.value.length, '个智能体')
       } else {
         console.error('❌ 获取智能体列表失败:', response.data)
@@ -97,9 +101,10 @@ export const useAgentsStore = defineStore('agents', () => {
       loading.value = true
       const response = await api.agents.get(agentId)
       
-      if (response.data.success) {
-        console.log('✅ 获取智能体详情成功:', response.data.data.name)
-        return response.data.data
+      if (response.data && response.data.success) {
+        const agentData = response.data.data
+        console.log('✅ 获取智能体详情成功:', agentData.name)
+        return agentData
       } else {
         console.error('❌ 获取智能体详情失败:', response.data.message)
         return null
@@ -119,10 +124,11 @@ export const useAgentsStore = defineStore('agents', () => {
       loading.value = true
       const response = await api.agents.create(data)
       
-      if (response.data.success) {
-        console.log('✅ 创建智能体成功:', response.data.data.name)
+      if (response.data && response.data.success) {
+        const agentData = response.data.data
+        console.log('✅ 创建智能体成功:', agentData.name)
         await getAgents() // 刷新列表
-        return response.data.data
+        return agentData
       } else {
         console.error('❌ 创建智能体失败:', response.data.message)
         return null
@@ -142,10 +148,11 @@ export const useAgentsStore = defineStore('agents', () => {
       loading.value = true
       const response = await api.agents.update(agentId, data)
       
-      if (response.data.success) {
-        console.log('✅ 更新智能体成功:', response.data.data.name)
+      if (response.data && response.data.success) {
+        console.log('✅ 更新智能体成功:', agentId)
         await getAgents() // 刷新列表
-        return response.data.data
+        // 返回更新后的数据
+        return await getAgent(agentId)
       } else {
         console.error('❌ 更新智能体失败:', response.data.message)
         return null
@@ -165,7 +172,7 @@ export const useAgentsStore = defineStore('agents', () => {
       loading.value = true
       const response = await api.agents.delete(agentId)
       
-      if (response.data.success) {
+      if (response.data && response.data.success) {
         console.log('✅ 删除智能体成功')
         await getAgents() // 刷新列表
         return true

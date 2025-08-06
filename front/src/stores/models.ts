@@ -10,7 +10,11 @@ export const useModelsStore = defineStore('models', () => {
 
   // 计算属性
   const activeModels = computed(() => 
-    models.value.filter(model => model.status === 'active' || model.status === 'available')
+    models.value.filter(model => 
+      model.status === 'active' || 
+      model.status === 'available' || 
+      (typeof model.status === 'boolean' && model.status === true)
+    )
   )
 
   // 获取模型列表

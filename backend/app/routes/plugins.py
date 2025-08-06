@@ -37,7 +37,11 @@ def get_plugins(current_user):
         if status:
             query['status'] = status
         if search:
-            query['name'] = {'$regex': search, '$options': 'i'}
+            query['$or'] = [
+                {'name': {'$regex': search, '$options': 'i'}},
+                {'description': {'$regex': search, '$options': 'i'}},
+                {'author': {'$regex': search, '$options': 'i'}}
+            ]
         
         # 获取总数
         total = db.plugins.count_documents(query)
@@ -52,9 +56,10 @@ def get_plugins(current_user):
             'status': 1,
             'version': 1,
             'author': 1,
+            'config': 1,
             'created_at': 1,
             'updated_at': 1
-        }).sort('created_at', -1).skip(skip).limit(limit))
+        }).sort('updated_at', -1).skip(skip).limit(limit))
         
         # 格式化数据
         for plugin in plugins:
@@ -231,7 +236,7 @@ def delete_plugin(current_user, plugin_id):
     except Exception as e:
         return jsonify(ApiResponse.error(str(e))), 400
 
-@plugins_bp.route('/<plugin_id>/toggle', methods=['POST'])
+@plugins_bp.route('/<plugin_id>/toggle', methods=['PUT'])
 @token_required
 @handle_exception
 def toggle_plugin(current_user, plugin_id):
@@ -391,7 +396,7 @@ def test_plugin(current_user, plugin_id):
         if not ObjectId.is_valid(plugin_id):
             return jsonify(ApiResponse.error('无效的插件ID')), 400
         
-        data = request.get_json()
+        data = request.get_json() or {}
         test_input = data.get('input', {})
         
         db = get_db()
@@ -537,6 +542,244 @@ def update_plugin_config(current_user, plugin_id):
         )
         
         return jsonify(ApiResponse.success(None, "插件配置更新成功"))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400 
+
+@plugins_bp.route('/batch-delete', methods=['POST'])
+@token_required
+@handle_exception
+def batch_delete_plugins(current_user):
+    """批量删除插件"""
+    try:
+        data = request.get_json()
+        plugin_ids = data.get('plugin_ids', [])
+        
+        if not plugin_ids:
+            return jsonify(ApiResponse.error('请选择要删除的插件')), 400
+        
+        db = get_db()
+        
+        # 验证插件是否存在且属于当前用户
+        for plugin_id in plugin_ids:
+            if not ObjectId.is_valid(plugin_id):
+                return jsonify(ApiResponse.error(f'无效的插件ID: {plugin_id}')), 400
+            
+            plugin = db.plugins.find_one({
+                '_id': ObjectId(plugin_id),
+                'user_id': current_user['id']
+            })
+            
+            if not plugin:
+                return jsonify(ApiResponse.error(f'插件不存在: {plugin_id}')), 404
+        
+        # 批量删除插件
+        result = db.plugins.delete_many({
+            '_id': {'$in': [ObjectId(pid) for pid in plugin_ids]},
+            'user_id': current_user['id']
+        })
+        
+        return jsonify(ApiResponse.success({
+            'deleted_count': result.deleted_count
+        }, f'成功删除 {result.deleted_count} 个插件'))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
+@plugins_bp.route('/batch-enable', methods=['POST'])
+@token_required
+@handle_exception
+def batch_enable_plugins(current_user):
+    """批量启用插件"""
+    try:
+        data = request.get_json()
+        plugin_ids = data.get('plugin_ids', [])
+        
+        if not plugin_ids:
+            return jsonify(ApiResponse.error('请选择要启用的插件')), 400
+        
+        db = get_db()
+        
+        # 验证插件是否存在且属于当前用户
+        for plugin_id in plugin_ids:
+            if not ObjectId.is_valid(plugin_id):
+                return jsonify(ApiResponse.error(f'无效的插件ID: {plugin_id}')), 400
+            
+            plugin = db.plugins.find_one({
+                '_id': ObjectId(plugin_id),
+                'user_id': current_user['id']
+            })
+            
+            if not plugin:
+                return jsonify(ApiResponse.error(f'插件不存在: {plugin_id}')), 404
+        
+        # 批量启用插件
+        result = db.plugins.update_many(
+            {
+                '_id': {'$in': [ObjectId(pid) for pid in plugin_ids]},
+                'user_id': current_user['id']
+            },
+            {
+                '$set': {
+                    'status': 'active',
+                    'updated_at': datetime.now()
+                }
+            }
+        )
+        
+        return jsonify(ApiResponse.success({
+            'updated_count': result.modified_count
+        }, f'成功启用 {result.modified_count} 个插件'))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
+@plugins_bp.route('/batch-disable', methods=['POST'])
+@token_required
+@handle_exception
+def batch_disable_plugins(current_user):
+    """批量禁用插件"""
+    try:
+        data = request.get_json()
+        plugin_ids = data.get('plugin_ids', [])
+        
+        if not plugin_ids:
+            return jsonify(ApiResponse.error('请选择要禁用的插件')), 400
+        
+        db = get_db()
+        
+        # 验证插件是否存在且属于当前用户
+        for plugin_id in plugin_ids:
+            if not ObjectId.is_valid(plugin_id):
+                return jsonify(ApiResponse.error(f'无效的插件ID: {plugin_id}')), 400
+            
+            plugin = db.plugins.find_one({
+                '_id': ObjectId(plugin_id),
+                'user_id': current_user['id']
+            })
+            
+            if not plugin:
+                return jsonify(ApiResponse.error(f'插件不存在: {plugin_id}')), 404
+        
+        # 批量禁用插件
+        result = db.plugins.update_many(
+            {
+                '_id': {'$in': [ObjectId(pid) for pid in plugin_ids]},
+                'user_id': current_user['id']
+            },
+            {
+                '$set': {
+                    'status': 'inactive',
+                    'updated_at': datetime.now()
+                }
+            }
+        )
+        
+        return jsonify(ApiResponse.success({
+            'updated_count': result.modified_count
+        }, f'成功禁用 {result.modified_count} 个插件'))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
+@plugins_bp.route('/market', methods=['GET'])
+@token_required
+@handle_exception
+def get_plugin_market(current_user):
+    """获取插件市场"""
+    try:
+        # 模拟插件市场数据
+        market_plugins = [
+            {
+                'id': 'market_1',
+                'name': '数据分析工具',
+                'description': '强大的数据分析插件，支持多种数据格式',
+                'author': 'Data Team',
+                'version': '2.1.0',
+                'type': 'free',
+                'category': 'analytics'
+            },
+            {
+                'id': 'market_2',
+                'name': 'API集成助手',
+                'description': '简化API集成流程，支持多种协议',
+                'author': 'Integration Team',
+                'version': '1.5.2',
+                'type': 'free',
+                'category': 'integration'
+            },
+            {
+                'id': 'market_3',
+                'name': '高级工作流引擎',
+                'description': '企业级工作流管理插件',
+                'author': 'Workflow Team',
+                'version': '3.0.0',
+                'type': 'paid',
+                'category': 'workflow'
+            }
+        ]
+        
+        return jsonify(ApiResponse.success(market_plugins, "获取插件市场成功"))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
+@plugins_bp.route('/search', methods=['GET'])
+@token_required
+@handle_exception
+def search_plugins(current_user):
+    """搜索插件"""
+    try:
+        query = request.args.get('q', '')
+        
+        if not query:
+            return jsonify(ApiResponse.success([], "搜索完成"))
+        
+        # 模拟搜索结果
+        search_results = [
+            {
+                'id': f'search_{query}_1',
+                'name': f'{query} 相关插件',
+                'description': f'与 "{query}" 相关的插件',
+                'author': 'Search Team',
+                'version': '1.0.0',
+                'type': 'free',
+                'category': 'search'
+            }
+        ]
+        
+        return jsonify(ApiResponse.success(search_results, "搜索完成"))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
+@plugins_bp.route('/market/<plugin_id>/install', methods=['POST'])
+@token_required
+@handle_exception
+def install_from_market(current_user, plugin_id):
+    """从市场安装插件"""
+    try:
+        db = get_db()
+        
+        # 模拟从市场安装插件
+        plugin_data = {
+            'name': f'从市场安装的插件 {plugin_id}',
+            'description': '从插件市场安装的插件',
+            'type': 'tool',
+            'version': '1.0.0',
+            'author': 'Market',
+            'status': 'inactive',
+            'config': {},
+            'metadata': {'source': 'market'},
+            'user_id': current_user['id'],
+            'created_at': datetime.now(),
+            'updated_at': datetime.now()
+        }
+        
+        result = db.plugins.insert_one(plugin_data)
+        plugin_data['id'] = str(result.inserted_id)
+        
+        return jsonify(ApiResponse.success(plugin_data, "插件安装成功"))
         
     except Exception as e:
         return jsonify(ApiResponse.error(str(e))), 400 

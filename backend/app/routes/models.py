@@ -73,6 +73,10 @@ def get_models(current_user):
         # 确保状态字段正确
         if 'status' not in model or model['status'] is None:
             model['status'] = 'active'  # 默认状态为active
+        elif isinstance(model['status'], bool):
+            model['status'] = 'active' if model['status'] else 'inactive'
+        elif model['status'] not in ['active', 'inactive', 'available']:
+            model['status'] = 'active'
         
         # 确保所有ObjectId都转换为字符串
         if 'parameters' in model and isinstance(model['parameters'], dict):

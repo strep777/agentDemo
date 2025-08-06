@@ -32,7 +32,7 @@
                   {{ conversation.type === 'agent' ? '智能体' : '模型' }}
                 </n-tag>
                 <span class="conversation-name">
-                  {{ conversation.agent_name || conversation.model_name || '未知' }}
+                  {{ conversation.agent_name || conversation.model_name || '默认模型' }}
                 </span>
               </div>
               <div class="conversation-time">
@@ -82,7 +82,7 @@
                   {{ currentConversation?.type === 'agent' ? '智能体' : '模型' }}
                 </n-tag>
                 <span class="chat-name">
-                  {{ currentConversation?.agent_name || currentConversation?.model_name || '未知' }}
+                  {{ currentConversation?.agent_name || currentConversation?.model_name || '默认模型' }}
                 </span>
               </div>
             </div>
@@ -132,7 +132,7 @@
               </div>
 
               <!-- AI消息 -->
-              <div v-else-if="message.type === 'assistant'" class="ai-message">
+              <div v-else-if="message.type === 'assistant'" class="assistant-message">
                 <div class="message-avatar">
                   <n-avatar round size="medium" color="var(--n-primary-color)">
                     <template #default>
@@ -141,9 +141,14 @@
                   </n-avatar>
                 </div>
                 <div class="message-content">
-                  <!-- 思考内容切换 -->
+                  <!-- 思考内容切换 - 只在有思考内容时显示 -->
                   <div v-if="hasThinkingContent(message.content)" class="thinking-toggle">
-                    <n-button size="small" text @click="toggleThinking(message.id)">
+                    <n-button size="small" text @click="toggleThinking(message.id)" class="thinking-btn">
+                      <template #icon>
+                        <n-icon size="14">
+                          <Bulb />
+                        </n-icon>
+                      </template>
                       {{ showThinking[message.id] ? '隐藏思考过程' : '显示思考过程' }}
                     </n-button>
                   </div>
@@ -396,8 +401,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick, computed, watch } from 'vue'
-import { Add, Trash, Send, Person, ServerOutline, ChatbubblesOutline, Bulb, HardwareChip, Attach, Image, Document, Close } from '@vicons/ionicons5'
+import { ref, reactive, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
+import { Add, Trash, Send, Person, ChatbubblesOutline, Bulb, HardwareChip, Attach, Image, Document, Close } from '@vicons/ionicons5'
 import { useChatStore } from '@/stores/chat'
 import { useAgentsStore } from '@/stores/agents'
 import { useModelsStore } from '@/stores/models'
@@ -410,7 +415,6 @@ import {
   NForm,
   NFormItem,
   NSelect,
-  NSpace,
   NAvatar,
   NTag,
   NRadioGroup,
@@ -420,73 +424,45 @@ import {
 import { parseMarkdown, hasThinkingContent, extractThinkingContent } from '@/utils/markdown'
 import { config } from '@/config'
 
-// 扩展消息类型以支持showThinking属性
-interface ExtendedMessage {
-  id: string
-  conversation_id: string
-  content: string
-  type: 'user' | 'assistant'
-  thinking?: string
-  attachments: any[]
-  metadata: any
-  user_id: string
-  created_at: string
-  showThinking?: boolean
-}
-
 const message = useMessage()
 const chatStore = useChatStore()
 const agentsStore = useAgentsStore()
 const modelsStore = useModelsStore()
 
-// 响应式数据
-const currentConversationId = ref('')
-const messageText = ref('')
-const streamingMessage = ref('')
-const showCreateDialog = ref(false)
-const chatMessagesRef = ref<HTMLElement>()
+const currentConversationId = ref<string>('')
+const messageText = ref<string>('')
+const streamingMessage = ref<string>('')
+const showCreateDialog = ref<boolean>(false)
+const chatMessagesRef = ref<HTMLElement | null>(null)
 const showThinking = ref<Record<string, boolean>>({})
-const sending = ref(false)
-const creating = ref(false)
-
-// 新增功能相关数据
-const showThinkingEnabled = ref(false)
-const selectedModel = ref('')
+const sending = ref<boolean>(false)
+const creating = ref<boolean>(false)
+const showThinkingEnabled = ref<boolean>(false)
+const selectedModel = ref<string>('')
 const uploadedFiles = ref<File[]>([])
-const fileInputRef = ref<HTMLInputElement>()
-const imageInputRef = ref<HTMLInputElement>()
-
-// 创建对话表单
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const imageInputRef = ref<HTMLInputElement | null>(null)
 const createForm = reactive({
   type: 'model' as 'agent' | 'model',
   agent_id: '',
   title: ''
 })
+const createFormRef = ref<any>(null)
 
-const createFormRef = ref()
-
-// 计算属性 - 修复模型一致性
 const agentOptions = computed(() => {
   return agentsStore.agents.map(agent => ({
     label: agent.name,
     value: agent.id
   }))
 })
-
 const modelOptions = computed(() => {
-  // 确保模型数据一致性，过滤掉无效的模型
-  const validModels = modelsStore.models.filter(model => 
-    model && model.id && model.name && 
-    (model.status === 'active' || model.status === 'available')
+  const validModels = modelsStore.models.filter(model =>
+    model && model.id && model.name &&
+    (model.status === 'active' || model.status === 'available' || 
+     (typeof model.status === 'boolean' && model.status === true))
   )
-  
-  console.log('📊 有效模型数量:', validModels.length)
-  validModels.forEach(model => {
-    console.log(`  - ${model.name} (${model.id}) - ${model.status} - ${model.server_url || 'localhost'}`)
-  })
-  
   return validModels.map(model => ({
-    label: model.name, // 只显示模型名称，不显示多余字符
+    label: model.name, // 只显示模型名称
     value: model.id,
     description: model.description || '',
     provider: model.provider || 'unknown',
@@ -494,11 +470,9 @@ const modelOptions = computed(() => {
     server_url: model.server_url
   }))
 })
-
 const currentConversation = computed(() => {
-  return chatStore.conversations.find(c => c.id === currentConversationId.value)
+  return chatStore.conversations.find(c => c.id === currentConversationId.value) || null
 })
-
 const createRules = computed(() => ({
   type: {
     required: true,
@@ -509,114 +483,206 @@ const createRules = computed(() => ({
     required: createForm.type === 'agent',
     message: '请选择智能体',
     trigger: 'change'
+  },
+  title: {
+    required: true,
+    message: '请输入对话标题',
+    trigger: 'blur',
+    min: 1,
+    max: 50
   }
 }))
 
 // 方法
-const selectConversation = (conversation: any) => {
-  currentConversationId.value = conversation.id
-  chatStore.getMessages(conversation.id)
+// 添加缺失的验证方法和错误处理方法
+const validateMessageInput = () => {
+  if (!messageText.value.trim()) {
+    message.error('请输入消息内容')
+    return false
+  }
   
-  // 如果是模型对话且有默认模型，自动选择该模型
-  if (conversation.type === 'model' && conversation.model_id) {
-    selectedModel.value = conversation.model_id
-    console.log('🔄 自动选择对话默认模型:', conversation.model_id)
-  } else if (conversation.type === 'model') {
-    // 如果是模型对话但没有默认模型，尝试设置第一个有效模型
-    const firstValidModel = modelsStore.models.find(model => 
-      model && model.id && model.name && 
-      (model.status === 'active' || model.status === 'available')
-    )
-    if (firstValidModel) {
-      selectedModel.value = firstValidModel.id
-      console.log('🔄 设置第一个有效模型作为默认模型:', firstValidModel.name)
-      
-      // 更新对话的默认模型
-      chatStore.updateConversation(conversation.id, {
-        model_id: firstValidModel.id
-      }).catch(error => {
-        console.error('❌ 更新对话默认模型失败:', error)
-      })
-    } else {
-      selectedModel.value = ''
-      console.log('🔄 模型对话无可用模型')
-    }
+  if (!currentConversationId.value) {
+    message.error('请先选择一个对话')
+    return false
+  }
+  
+  if (messageText.value.trim().length > 4000) {
+    message.error('消息内容过长，请控制在4000字符以内')
+    return false
+  }
+  
+  // 检查是否有有效的对话
+  const currentConversation = chatStore.conversations.find(c => c.id === currentConversationId.value)
+  if (!currentConversation) {
+    message.error('当前对话无效，请重新选择对话')
+    return false
+  }
+  
+  return true
+}
+
+const validateFileUpload = (file: File) => {
+  const maxSize = config.upload?.maxSize || 10 * 1024 * 1024 // 默认10MB
+  const allowedTypes = config.upload?.allowedTypes || ['.txt', '.md', '.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.gif']
+  
+  if (file.size > maxSize) {
+    message.error(`文件 ${file.name} 过大，最大支持 ${maxSize / 1024 / 1024}MB`)
+    return false
+  }
+  
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (ext && !allowedTypes.includes('.' + ext)) {
+    message.error(`文件类型不支持: ${file.name}`)
+    return false
+  }
+  
+  // 检查文件名长度
+  if (file.name.length > 100) {
+    message.error(`文件名过长: ${file.name}`)
+    return false
+  }
+  
+  return true
+}
+
+const validateImageUpload = (file: File) => {
+  const maxSize = config.upload?.maxSize || 10 * 1024 * 1024 // 默认10MB
+  
+  if (!file.type.startsWith('image/')) {
+    message.error(`文件 ${file.name} 不是有效的图片格式`)
+    return false
+  }
+  
+  if (file.size > maxSize) {
+    message.error(`图片 ${file.name} 过大，最大支持 ${maxSize / 1024 / 1024}MB`)
+    return false
+  }
+  
+  // 检查文件名长度
+  if (file.name.length > 100) {
+    message.error(`文件名过长: ${file.name}`)
+    return false
+  }
+  
+  return true
+}
+
+const handleError = (error: any, operation: string) => {
+  console.error(`❌ ${operation}失败:`, error)
+  
+  // 根据错误类型显示不同的错误信息
+  if (error.code === 'ECONNABORTED') {
+    message.error('请求超时，请检查后端服务是否正常运行')
+  } else if (error.code === 'ERR_NETWORK') {
+    message.error('网络连接失败，请检查网络连接')
+  } else if (error.response?.status === 500) {
+    message.error('服务器内部错误，请稍后重试')
+  } else if (error.response?.status === 404) {
+    message.error('API端点不存在，请检查后端配置')
+  } else if (error.response?.status === 401) {
+    message.error('认证失败，请重新登录')
+  } else if (error.response?.status === 403) {
+    message.error('权限不足，请检查用户权限')
+  } else if (error.response?.status === 422) {
+    message.error('请求参数错误，请检查输入数据')
   } else {
-    // 智能体对话，清空模型选择
-    selectedModel.value = ''
-    console.log('🔄 智能体对话，清空模型选择')
+    const errorMessage = error.response?.data?.message || error.message || `${operation}失败`
+    message.error(errorMessage)
   }
 }
 
+// 优化 selectConversation 错误处理
+const selectConversation = async (conversation: any) => {
+  if (!conversation?.id) {
+    message.error('无效的对话')
+    return
+  }
+  
+  try {
+    currentConversationId.value = conversation.id
+    chatStore.messages = []
+    await chatStore.getMessages(conversation.id)
+    
+    // 根据对话类型设置模型
+    if (conversation.type === 'model' && conversation.model_id) {
+      selectedModel.value = conversation.model_id
+    } else if (conversation.type === 'model') {
+      const firstValidModel = modelsStore.models.find(model =>
+        model && model.id && model.name &&
+        (model.status === 'active' || model.status === 'available' || 
+         (typeof model.status === 'boolean' && model.status === true))
+      )
+      selectedModel.value = firstValidModel ? firstValidModel.id : ''
+      if (firstValidModel) {
+        try {
+          await chatStore.updateConversation(conversation.id, { model_id: firstValidModel.id })
+          console.log('✅ 自动设置对话模型:', firstValidModel.name)
+        } catch (error) {
+          console.warn('⚠️ 自动设置对话模型失败:', error)
+        }
+      }
+    } else {
+      selectedModel.value = ''
+    }
+    
+    await nextTick()
+    scrollToBottom()
+    console.log('✅ 对话选择成功:', conversation.title || conversation.id)
+  } catch (error: any) {
+    handleError(error, '选择对话')
+  }
+}
+
+// 优化 handleSendMessage 错误处理
 const handleSendMessage = async () => {
-  if (!messageText.value.trim() || !currentConversationId.value) return
+  if (!validateMessageInput()) return
   
   const content = messageText.value.trim()
   const files = uploadedFiles.value
-  
-  // 检查当前对话类型和模型选择
   const currentConversation = chatStore.conversations.find(c => c.id === currentConversationId.value)
+  
   if (currentConversation?.type === 'model' && !selectedModel.value) {
     message.error('请先选择一个模型')
     return
   }
   
-  // 立即添加用户消息到聊天框，提供即时反馈
-  const userMessage = {
-    id: `user_${Date.now()}`,
-    conversation_id: currentConversationId.value,
-    content: content,
-    type: 'user' as const,
-    attachments: files.map(file => ({
-      name: file.name,
-      size: file.size,
-      type: file.type
-    })),
-    metadata: {},
-    user_id: 'current-user',
-    created_at: new Date().toISOString()
-  }
-  
-  // 添加到消息列表
-  chatStore.messages.push(userMessage)
-  
-  // 清空输入和文件
-  messageText.value = ''
-  uploadedFiles.value = []
-  sending.value = true
-  
-  // 清空之前的流式消息
-  streamingMessage.value = ''
-  
-  // 立即滚动到底部，显示用户消息
-  await nextTick()
-  scrollToBottom()
-  
   try {
-    // 构建消息数据，包含文件和深度思考设置
-    const messageData = {
+    const userMessage = {
+      id: `user_${Date.now()}`,
+      conversation_id: currentConversationId.value,
       content,
-      files: files.map(file => ({
+      type: 'user' as const,
+      attachments: files.map(file => ({
         name: file.name,
         size: file.size,
-        type: file.type,
-        data: file // 实际使用时需要转换为base64或上传到服务器
+        type: file.type
       })),
-      showThinking: showThinkingEnabled.value,
-      modelId: selectedModel.value || undefined
+      metadata: {},
+      user_id: 'current-user',
+      created_at: new Date().toISOString()
     }
     
-    // 调用store的streamMessage方法发送消息到后端
+    // 添加用户消息到列表
+    chatStore.messages.push(userMessage)
+    
+    // 清空输入和文件
+    messageText.value = ''
+    uploadedFiles.value = []
+    sending.value = true
+    streamingMessage.value = ''
+    
+    await nextTick()
+    scrollToBottom()
+    
+    // 开始流式发送
     await chatStore.streamMessage(
       currentConversationId.value,
       content,
       (chunk) => {
         streamingMessage.value += chunk
-        // 每次收到数据块时都滚动到底部
         scrollToBottom()
       },
-      (message) => {
-        // 流式传输完成，清空流式消息
+      () => {
         streamingMessage.value = ''
         scrollToBottom()
       },
@@ -625,22 +691,21 @@ const handleSendMessage = async () => {
         streamingMessage.value = ''
       },
       {
-        files: files,
+        files,
         showThinking: showThinkingEnabled.value,
         modelId: selectedModel.value || undefined
       }
     )
   } catch (error: any) {
-    const errorMessage = error.response?.data?.message || error.message || '发送消息失败'
-    message.error(errorMessage)
+    handleError(error, '发送消息')
   } finally {
     sending.value = false
   }
 }
 
+// 优化 createConversation 错误处理
 const createConversation = async () => {
   if (!createFormRef.value) return
-  
   try {
     await createFormRef.value.validate()
   } catch (errors: any) {
@@ -649,11 +714,8 @@ const createConversation = async () => {
       return
     }
   }
-
   try {
     creating.value = true
-    
-    // 验证选择的智能体是否存在
     if (createForm.type === 'agent' && createForm.agent_id) {
       const agent = agentsStore.agents.find(a => a.id === createForm.agent_id)
       if (!agent) {
@@ -661,61 +723,183 @@ const createConversation = async () => {
         return
       }
     }
-    
-    const result = await chatStore.createConversation(createForm)
+    const payload: any = {
+      type: createForm.type,
+      title: createForm.title
+    }
+    if (createForm.type === 'agent') payload.agent_id = createForm.agent_id
+    const result = await chatStore.createConversation(payload)
     if (result) {
       showCreateDialog.value = false
       createForm.type = 'model'
       createForm.agent_id = ''
       createForm.title = ''
-      
-      // 如果是模型对话，设置默认模型为第一个有效模型
       if (result.type === 'model') {
-        const firstValidModel = modelsStore.models.find(model => 
-          model && model.id && model.name && 
-          (model.status === 'active' || model.status === 'available')
+        const firstValidModel = modelsStore.models.find(model =>
+          model && model.id && model.name &&
+          (model.status === 'active' || model.status === 'available' || 
+           (typeof model.status === 'boolean' && model.status === true))
         )
         if (firstValidModel) {
           selectedModel.value = firstValidModel.id
-          console.log('🔄 自动设置默认模型:', firstValidModel.name)
-          
-          // 更新对话的默认模型
           try {
             await chatStore.updateConversation(result.id, {
               model_id: firstValidModel.id
             })
-            console.log('✅ 对话默认模型更新成功')
           } catch (error) {
-            console.error('❌ 更新对话默认模型失败:', error)
+            // 忽略错误
           }
         }
       }
-      
       selectConversation(result)
       message.success('对话创建成功')
     }
   } catch (error: any) {
-    console.error('创建对话失败:', error)
-    const errorMessage = error.response?.data?.message || error.message || '创建对话失败'
-    message.error(errorMessage)
+    handleError(error, '创建对话')
   } finally {
     creating.value = false
   }
 }
 
-const deleteConversation = async (conversationId: string) => {
-  try {
-    await chatStore.deleteConversation(conversationId)
-    if (currentConversationId.value === conversationId) {
-      currentConversationId.value = ''
+// 1. 文件上传功能补全
+const triggerFileUpload = () => {
+  fileInputRef.value?.click()
+}
+
+const handleFileUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  if (target.files) {
+    const files = Array.from(target.files)
+    const validFiles = files.filter(validateFileUpload)
+    
+    if (validFiles.length !== files.length) {
+      message.warning(`有 ${files.length - validFiles.length} 个文件不符合要求`)
     }
-    message.success('对话删除成功')
-  } catch (error: any) {
-    console.error('删除对话失败:', error)
-    message.error('删除对话失败')
+    
+    if (validFiles.length > 0) {
+      uploadedFiles.value.push(...validFiles)
+      message.success(`成功添加 ${validFiles.length} 个文件`)
+    }
+    
+    target.value = ''
   }
 }
 
+const triggerImageUpload = () => {
+  imageInputRef.value?.click()
+}
+
+const handleImageUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  if (target.files) {
+    const files = Array.from(target.files)
+    const validFiles = files.filter(validateImageUpload)
+    
+    if (validFiles.length !== files.length) {
+      message.warning(`有 ${files.length - validFiles.length} 个图片不符合要求`)
+    }
+    
+    if (validFiles.length > 0) {
+      uploadedFiles.value.push(...validFiles)
+      message.success(`成功添加 ${validFiles.length} 个图片`)
+    }
+    
+    target.value = ''
+  }
+}
+
+const removeFile = (index: number) => {
+  const removedFile = uploadedFiles.value[index]
+  uploadedFiles.value.splice(index, 1)
+  message.success(`已移除文件: ${removedFile.name}`)
+}
+
+const formatFileSize = (bytes: number) => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// 2. 思考内容显示功能补全
+const parseThinkingContent = (content: string) => {
+  const { thinking } = extractThinkingContent(content)
+  return parseMarkdown(thinking)
+}
+
+const getReplyContent = (content: string) => {
+  const { reply } = extractThinkingContent(content)
+  return reply
+}
+
+const toggleThinking = (messageId: string) => {
+  showThinking.value[messageId] = !showThinking.value[messageId]
+}
+
+// 3. 模型/智能体切换功能补全
+const handleModelChange = async (modelId: string) => {
+  console.log('🔄 模型选择变化:', modelId)
+  
+  if (modelId && currentConversationId.value) {
+    const selectedModelData = modelsStore.models.find(m => m.id === modelId)
+    if (selectedModelData) {
+      console.log('✅ 选择模型:', selectedModelData.name)
+      message.success(`已选择模型: ${selectedModelData.name}`)
+      
+      // 更新对话的模型
+      try {
+        await chatStore.updateConversation(currentConversationId.value, {
+          model_id: modelId
+        })
+        console.log('✅ 对话模型更新成功')
+      } catch (error) {
+        console.error('❌ 更新对话模型失败:', error)
+        message.error('更新对话模型失败')
+      }
+    } else {
+      console.error('❌ 选择的模型不存在:', modelId)
+      message.error('选择的模型不存在')
+    }
+  } else {
+    console.log('🔄 清除模型选择')
+    message.info('已清除模型选择')
+  }
+}
+
+// 4. 流式消息功能补全
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (chatMessagesRef.value) {
+      const scrollElement = chatMessagesRef.value
+      scrollElement.scrollTop = scrollElement.scrollHeight
+    }
+  })
+}
+
+const forceScrollToBottom = () => {
+  nextTick(() => {
+    if (chatMessagesRef.value) {
+      const scrollElement = chatMessagesRef.value
+      scrollElement.scrollTop = scrollElement.scrollHeight
+    }
+  })
+}
+
+// 平滑滚动到底部
+const smoothScrollToBottom = () => {
+  nextTick(() => {
+    if (chatMessagesRef.value) {
+      const scrollElement = chatMessagesRef.value
+      scrollElement.scrollTo({
+        top: scrollElement.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
+  })
+}
+
+// 5. 对话管理功能补全
 const formatTime = (time: string) => {
   if (!time) return ''
   const date = new Date(time)
@@ -734,122 +918,37 @@ const formatTime = (time: string) => {
   }
 }
 
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (chatMessagesRef.value) {
-      const scrollElement = chatMessagesRef.value
-      scrollElement.scrollTop = scrollElement.scrollHeight
-      console.log('🔄 滚动到底部:', scrollElement.scrollTop, scrollElement.scrollHeight)
-    }
-  })
-}
-
-// 强制滚动到底部
-const forceScrollToBottom = () => {
-  nextTick(() => {
-    if (chatMessagesRef.value) {
-      const scrollElement = chatMessagesRef.value
-      scrollElement.scrollTop = scrollElement.scrollHeight
-      console.log('🔄 强制滚动到底部')
-    }
-  })
-}
-
-// 思考内容相关方法
-const parseThinkingContent = (content: string) => {
-  const { thinking } = extractThinkingContent(content)
-  return parseMarkdown(thinking)
-}
-
-const getReplyContent = (content: string) => {
-  const { reply } = extractThinkingContent(content)
-  return reply
-}
-
-const toggleThinking = (messageId: string) => {
-  showThinking.value[messageId] = !showThinking.value[messageId]
-}
-
-// 文件上传相关方法
-const triggerFileUpload = () => {
-  fileInputRef.value?.click()
-}
-
-const handleFileUpload = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.files) {
-    const files = Array.from(target.files)
-    // 验证文件大小和类型
-    const validFiles = files.filter(file => {
-      if (file.size > config.upload.maxSize) {
-        message.error(`文件 ${file.name} 过大，最大支持 ${config.upload.maxSize / 1024 / 1024}MB`)
-        return false
+// 优化 deleteConversation 错误处理
+const deleteConversation = async (conversationId: string) => {
+  if (!conversationId) {
+    message.error('无效的对话ID')
+    return
+  }
+  
+  try {
+    await chatStore.deleteConversation(conversationId)
+    
+    if (currentConversationId.value === conversationId) {
+      const next = chatStore.conversations.find(c => c.id !== conversationId)
+      if (next) {
+        selectConversation(next)
+      } else {
+        currentConversationId.value = ''
+        chatStore.messages = []
       }
-      return true
-    })
-    uploadedFiles.value.push(...validFiles)
-    target.value = '' // 清空input
+    }
+    
+    message.success('对话删除成功')
+  } catch (error: any) {
+    handleError(error, '删除对话')
   }
 }
 
-const triggerImageUpload = () => {
-  imageInputRef.value?.click()
-}
-
-const handleImageUpload = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.files) {
-    const files = Array.from(target.files)
-    // 验证图片文件
-    const validFiles = files.filter(file => {
-      if (!file.type.startsWith('image/')) {
-        message.error(`文件 ${file.name} 不是有效的图片格式`)
-        return false
-      }
-      if (file.size > config.upload.maxSize) {
-        message.error(`图片 ${file.name} 过大，最大支持 ${config.upload.maxSize / 1024 / 1024}MB`)
-        return false
-      }
-      return true
-    })
-    uploadedFiles.value.push(...validFiles)
-    target.value = '' // 清空input
-  }
-}
-
-const removeFile = (index: number) => {
-  uploadedFiles.value.splice(index, 1)
-}
-
-const formatFileSize = (bytes: number) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-// 处理模型选择变化
-const handleModelChange = (modelId: string) => {
-  console.log('🔄 模型选择变化:', modelId)
-  if (modelId) {
-    const selectedModelData = modelsStore.models.find(m => m.id === modelId)
-    if (selectedModelData) {
-      const serverInfo = selectedModelData.server_url ? ` (${selectedModelData.server_url})` : ' (localhost)'
-      console.log('✅ 选择模型:', selectedModelData.name + serverInfo)
-      message.success(`已选择模型: ${selectedModelData.name}${serverInfo}`)
-    }
-  } else {
-    console.log('🔄 清除模型选择')
-  }
-}
-
-// 初始化数据
+// 优化 initializeData 错误处理
 const initializeData = async () => {
   try {
     console.log('🔄 开始初始化聊天页面数据...')
     
-    // 并行加载所有必要的数据
     const promises = [
       agentsStore.getAgents(),
       modelsStore.getModels(),
@@ -857,15 +956,36 @@ const initializeData = async () => {
     ]
     
     await Promise.all(promises)
-    
     console.log('✅ 聊天页面数据初始化完成')
-    console.log(`📊 智能体数量: ${agentsStore.agents.length}`)
-    console.log(`📊 模型数量: ${modelsStore.models.length}`)
-    console.log(`📊 对话数量: ${chatStore.conversations.length}`)
     
+    // 检查是否有URL参数指定对话
+    const urlParams = new URLSearchParams(window.location.search)
+    const conversationId = urlParams.get('conversation_id')
+    const agentId = urlParams.get('agent_id')
+    
+    if (conversationId) {
+      const conversation = chatStore.conversations.find(c => c.id === conversationId)
+      if (conversation) {
+        await selectConversation(conversation)
+      } else {
+        console.warn('⚠️ URL指定的对话不存在:', conversationId)
+      }
+    } else if (agentId) {
+      // 如果有agent_id参数，创建新的智能体对话
+      const agent = agentsStore.agents.find(a => a.id === agentId)
+      if (agent) {
+        createForm.type = 'agent'
+        createForm.agent_id = agentId
+        createForm.title = `与 ${agent.name} 的对话`
+        await createConversation()
+      } else {
+        console.warn('⚠️ URL指定的智能体不存在:', agentId)
+      }
+    }
+    
+    console.log('✅ 聊天页面初始化完成')
   } catch (error: any) {
-    console.error('❌ 初始化聊天页面数据失败:', error)
-    message.error('初始化数据失败，请刷新页面重试')
+    handleError(error, '初始化数据')
   }
 }
 
@@ -874,18 +994,33 @@ onMounted(async () => {
   await initializeData()
 })
 
+onUnmounted(() => {
+  // 清理所有响应式数据
+  currentConversationId.value = ''
+  messageText.value = ''
+  streamingMessage.value = ''
+  showCreateDialog.value = false
+  showThinking.value = {}
+  sending.value = false
+  creating.value = false
+  showThinkingEnabled.value = false
+  selectedModel.value = ''
+  uploadedFiles.value = []
+  chatStore.messages = []
+})
+
 // 监听消息变化，自动滚动到底部
 watch(() => chatStore.messages, () => {
-  scrollToBottom()
+  nextTick(() => {
+    scrollToBottom()
+  })
 }, { deep: true })
 
 // 监听流式传输状态
 watch(() => chatStore.streaming, (isStreaming) => {
   if (isStreaming) {
-    console.log('🔄 开始流式传输，滚动到底部')
     forceScrollToBottom()
   } else {
-    console.log('🔄 流式传输结束，清空流式消息')
     streamingMessage.value = ''
   }
 })
@@ -893,24 +1028,26 @@ watch(() => chatStore.streaming, (isStreaming) => {
 // 监听流式消息变化
 watch(streamingMessage, (newValue) => {
   if (newValue) {
-    console.log('🔄 收到流式消息，滚动到底部')
     scrollToBottom()
   }
 })
 
-// 监听模型数据变化，确保模型选择器更新
+// 监听模型数据变化
 watch(() => modelsStore.models, (newModels) => {
-  console.log('📊 模型数据更新:', newModels.length, '个模型')
-  // 如果当前选择的模型不存在了，清空选择
   if (selectedModel.value && !newModels.find(m => m.id === selectedModel.value)) {
     selectedModel.value = ''
-    console.log('🔄 清空无效的模型选择')
+    console.log('🔄 当前选择的模型已不存在，已清除选择')
   }
 }, { deep: true })
 
 // 监听智能体数据变化
 watch(() => agentsStore.agents, (newAgents) => {
   console.log('📊 智能体数据更新:', newAgents.length, '个智能体')
+}, { deep: true })
+
+// 监听对话列表变化
+watch(() => chatStore.conversations, (newConversations) => {
+  console.log('📊 对话列表更新:', newConversations.length, '个对话')
 }, { deep: true })
 </script>
 
@@ -923,6 +1060,7 @@ watch(() => agentsStore.agents, (newAgents) => {
   background: var(--n-color);
   padding: 16px;
   margin: 0;
+  overflow: hidden;
 }
 
 /* 聊天容器 */
@@ -935,6 +1073,7 @@ watch(() => agentsStore.agents, (newAgents) => {
   overflow: hidden;
   min-height: 600px;
   border: 1px solid var(--n-border-color);
+  flex: 1;
 }
 
 /* 左侧对话列表 */
@@ -966,33 +1105,34 @@ watch(() => agentsStore.agents, (newAgents) => {
   color: var(--n-text-color);
 }
 
+.new-chat-btn {
+  color: var(--n-primary-color);
+}
+
 .conversation-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 0;
 }
 
 .conversation-item {
-  padding: 16px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-bottom: 4px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--n-border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
   background: var(--n-color);
-  border: 1px solid transparent;
 }
 
 .conversation-item:hover {
   background: var(--n-hover-color);
-  border-color: var(--n-border-color);
 }
 
 .conversation-item.active {
   background: var(--n-primary-color-1);
-  border-color: var(--n-primary-color);
+  border-left: 3px solid var(--n-primary-color);
 }
 
 .conversation-info {
@@ -1002,12 +1142,11 @@ watch(() => agentsStore.agents, (newAgents) => {
 
 .conversation-title {
   font-weight: 500;
-  margin-bottom: 6px;
   color: var(--n-text-color);
+  margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 14px;
 }
 
 .conversation-meta {
@@ -1017,23 +1156,39 @@ watch(() => agentsStore.agents, (newAgents) => {
   margin-bottom: 4px;
 }
 
+.conversation-tag {
+  flex-shrink: 0;
+}
+
 .conversation-name {
   font-size: 12px;
   color: var(--n-text-color-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .conversation-time {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--n-text-color-4);
 }
 
 .conversation-actions {
+  flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s ease;
 }
 
 .conversation-item:hover .conversation-actions {
   opacity: 1;
+}
+
+.delete-btn {
+  color: var(--n-error-color);
+}
+
+.delete-btn:hover {
+  background: var(--n-error-color-1);
 }
 
 /* 右侧聊天区域 */
@@ -1051,78 +1206,43 @@ watch(() => agentsStore.agents, (newAgents) => {
   align-items: center;
   justify-content: center;
   background: var(--n-color);
-  min-height: 400px;
 }
 
 .empty-content {
   text-align: center;
-  color: var(--n-text-color-3);
-  max-width: 400px;
-  padding: 40px 20px;
-}
-
-.empty-content .n-icon {
-  color: var(--n-text-color-4);
+  padding: 40px;
 }
 
 .empty-icon {
   margin-bottom: 24px;
-  opacity: 0.5;
 }
 
 .empty-title {
   font-size: 24px;
   font-weight: 600;
-  margin: 16px 0 12px 0;
   color: var(--n-text-color);
+  margin: 0 0 12px 0;
 }
 
 .empty-description {
-  font-size: 16px;
-  margin: 0 0 32px 0;
+  font-size: 14px;
   color: var(--n-text-color-3);
-  line-height: 1.5;
+  margin: 0 0 24px 0;
 }
 
 .create-btn {
-  background-color: var(--n-primary-color);
-  color: white;
-  border-color: var(--n-primary-color);
+  font-weight: 500;
 }
 
-.create-btn:hover {
-  background-color: var(--n-primary-color-hover);
-  border-color: var(--n-primary-color-hover);
-}
-
-.new-chat-btn {
-  background-color: var(--n-primary-color);
-  color: white;
-  border-color: var(--n-primary-color);
-}
-
-.new-chat-btn:hover {
-  background-color: var(--n-primary-color-hover);
-  border-color: var(--n-primary-color-hover);
-}
-
-.delete-btn {
-  color: var(--n-error-color);
-}
-
-.delete-btn:hover {
-  background-color: var(--n-error-color);
-  color: white;
-}
-
+/* 聊天内容区域 */
 .chat-content {
   flex: 1;
   display: flex;
   flex-direction: column;
+  background: var(--n-color);
   min-height: 0;
 }
 
-/* 聊天头部 */
 .chat-header {
   padding: 20px;
   border-bottom: 1px solid var(--n-border-color);
@@ -1150,8 +1270,7 @@ watch(() => agentsStore.agents, (newAgents) => {
 }
 
 .chat-tag {
-  background-color: var(--n-primary-color-1);
-  color: var(--n-primary-color);
+  flex-shrink: 0;
 }
 
 .chat-name {
@@ -1169,6 +1288,7 @@ watch(() => agentsStore.agents, (newAgents) => {
   gap: 24px;
   background: var(--n-color);
   min-height: 0;
+  scroll-behavior: smooth;
 }
 
 .message-wrapper {
@@ -1176,6 +1296,7 @@ watch(() => agentsStore.agents, (newAgents) => {
   gap: 12px;
   max-width: 85%;
   margin-bottom: 16px;
+  animation: fadeInUp 0.3s ease-out;
 }
 
 .message-wrapper.user {
@@ -1187,69 +1308,75 @@ watch(() => agentsStore.agents, (newAgents) => {
   align-self: flex-start;
 }
 
-/* 用户消息 */
-.user-message {
+/* 消息样式 */
+.user-message,
+.assistant-message {
   display: flex;
-  align-items: flex-start;
   gap: 12px;
-  max-width: 100%;
+  width: 100%;
 }
 
-.user-message .message-content {
-  text-align: right;
+.message-avatar {
+  flex-shrink: 0;
+}
+
+.message-content {
   flex: 1;
   min-width: 0;
 }
 
-.user-message .message-text {
-  display: inline-block;
-  background: var(--n-primary-color);
-  color: white;
-  padding: 16px 20px;
-  border-radius: 20px;
+.message-text {
+  background: var(--n-hover-color);
+  padding: 12px 16px;
+  border-radius: 12px;
   line-height: 1.6;
+  color: var(--n-text-color);
   word-wrap: break-word;
-  max-width: 100%;
-  font-size: 14px;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+  white-space: pre-wrap;
 }
 
-.user-message .message-time {
-  font-size: 12px;
+.user-message .message-text {
+  background: var(--n-primary-color);
+  color: white;
+}
+
+.assistant-message .message-text {
+  background: var(--n-hover-color);
+  color: var(--n-text-color);
+}
+
+.message-time {
+  font-size: 11px;
   color: var(--n-text-color-4);
   margin-top: 4px;
   text-align: right;
 }
 
-/* 消息附件 */
+.user-message .message-time {
+  text-align: right;
+}
+
+.assistant-message .message-time {
+  text-align: left;
+}
+
+/* 附件样式 */
 .message-attachments {
   margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .attachment-item {
-  display: flex;
-  align-items: center;
-  padding: 6px 8px;
   background: var(--n-color);
   border: 1px solid var(--n-border-color);
   border-radius: 6px;
-  transition: all 0.2s ease;
-}
-
-.attachment-item:hover {
-  background: var(--n-hover-color);
-  border-color: var(--n-primary-color);
+  padding: 8px 12px;
+  margin-bottom: 4px;
 }
 
 .attachment-info {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
+  gap: 8px;
 }
 
 .attachment-icon {
@@ -1258,129 +1385,113 @@ watch(() => agentsStore.agents, (newAgents) => {
 }
 
 .attachment-name {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--n-text-color);
-  font-weight: 500;
+  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
 }
 
 .attachment-size {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--n-text-color-4);
   flex-shrink: 0;
 }
 
-/* AI消息 */
-.ai-message {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  max-width: 100%;
-}
-
-.ai-message .message-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.ai-message .message-text {
-  background: var(--n-color);
-  color: var(--n-text-color);
-  border: 1px solid var(--n-border-color);
-  padding: 16px 20px;
-  border-radius: 20px;
-  line-height: 1.6;
-  word-wrap: break-word;
-  font-size: 14px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.ai-message .message-time {
-  font-size: 12px;
-  color: var(--n-text-color-4);
-  margin-top: 4px;
-}
-
-/* 思考内容切换 */
+/* 思考内容样式 */
 .thinking-toggle {
   margin-bottom: 8px;
-  display: flex;
-  justify-content: flex-end;
 }
 
-.thinking-toggle .n-button {
+.thinking-btn {
   color: var(--n-warning-color);
+  font-size: 12px;
 }
 
-.thinking-toggle .n-button:hover {
-  color: var(--n-warning-color-hover);
-}
-
-/* 思考内容 */
 .thinking-content {
   background: var(--n-warning-color-1);
-  padding: 12px 16px;
-  border-radius: 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--n-warning-color);
+  border: 1px solid var(--n-warning-color-2);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
 }
 
 .thinking-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 8px;
-  color: var(--n-warning-color);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
+  color: var(--n-warning-color);
 }
 
 .thinking-text {
-  line-height: 1.6;
-  font-size: 14px;
-  color: var(--n-warning-color);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--n-text-color);
+  opacity: 0.8;
 }
 
-/* 加载气泡 */
+/* 流式消息样式 */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.typing-indicator span {
+  width: 4px;
+  height: 4px;
+  background: var(--n-text-color-3);
+  border-radius: 50%;
+  animation: typing 1.4s infinite ease-in-out;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+/* 加载气泡样式 */
 .loading-bubble {
   display: flex;
   align-items: center;
-  gap: 12px;
-  color: var(--n-text-color-3);
-  font-size: 14px;
+  gap: 8px;
   padding: 12px 16px;
-  background: var(--n-color);
-  border-radius: 18px;
-  border: 1px solid var(--n-border-color);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--n-hover-color);
+  border-radius: 12px;
+  color: var(--n-text-color-3);
 }
 
 .loading-dots {
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 
 .loading-dots span {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background-color: var(--n-text-color-4);
+  width: 4px;
+  height: 4px;
+  background: var(--n-text-color-3);
   border-radius: 50%;
-  animation: dot-pulse 1.2s infinite ease-in-out;
+  animation: pulse 1.4s infinite ease-in-out;
 }
 
-.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
-.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-.loading-dots span:nth-child(3) { animation-delay: 0s; }
+.loading-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
 
 .loading-text {
-  font-size: 14px;
-  color: var(--n-text-color-3);
+  font-size: 12px;
 }
 
 @keyframes dot-pulse {
@@ -1388,6 +1499,7 @@ watch(() => agentsStore.agents, (newAgents) => {
   40% { transform: scale(1); opacity: 1; }
 }
 
+/* 动画效果 */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -1396,6 +1508,27 @@ watch(() => agentsStore.agents, (newAgents) => {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes typing {
+  0%, 20% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+  80%, 100% {
+    transform: translateY(0px);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
   }
 }
 
@@ -1409,6 +1542,7 @@ watch(() => agentsStore.agents, (newAgents) => {
   padding: 20px;
   background: var(--n-color);
   flex-shrink: 0;
+  min-height: 0;
 }
 
 /* 功能工具栏 */
@@ -1563,6 +1697,8 @@ watch(() => agentsStore.agents, (newAgents) => {
   transition: all 0.3s ease;
   width: 100%;
   resize: none;
+  min-height: 48px;
+  max-height: 120px;
 }
 
 .input-field:focus {
@@ -1585,11 +1721,18 @@ watch(() => agentsStore.agents, (newAgents) => {
   padding: 12px 24px;
   font-weight: 500;
   transition: all 0.3s ease;
+  min-width: 80px;
 }
 
 .send-btn:hover {
   background: var(--n-primary-color-hover);
   transform: translateY(-1px);
+}
+
+.send-btn:disabled {
+  background: var(--n-text-color-4);
+  cursor: not-allowed;
+  transform: none;
 }
 
 .typing-indicator {
@@ -1615,8 +1758,8 @@ watch(() => agentsStore.agents, (newAgents) => {
 
 @media (max-width: 768px) {
   .chat-page {
-    height: calc(100vh - 80px);
     padding: 8px;
+    height: calc(100vh - 80px);
   }
   
   .chat-container {

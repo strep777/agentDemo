@@ -24,13 +24,8 @@ export interface Agent {
   description: string
   type: AgentType
   model_name: string
-  status: 'active' | 'inactive'
-  config?: {
-    temperature?: number
-    max_tokens?: number
-    system_prompt?: string
-    [key: string]: any
-  }
+  status: AgentStatus
+  config?: AgentConfig
   knowledge_base_ids?: string[]
   plugin_ids?: string[]
   created_at: string
@@ -43,13 +38,8 @@ export interface CreateAgentParams {
   description: string
   type: AgentType
   model_name: string
-  status?: 'active' | 'inactive'
-  config?: {
-    temperature?: number
-    max_tokens?: number
-    system_prompt?: string
-    [key: string]: any
-  }
+  status?: AgentStatus
+  config?: AgentConfig
   knowledge_base_ids?: string[]
   plugin_ids?: string[]
 }

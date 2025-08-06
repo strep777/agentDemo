@@ -101,11 +101,11 @@ def token_required(f):
         current_user = {
             'id': str(user['_id']),
             'username': user['username'],
-            'email': user['email'],
+            'email': user.get('email', ''),
             'role': user.get('role', 'user')
         }
         
-        print("✅ 认证成功")
+        print(f"✅ 认证成功: {current_user['username']}")
         return f(current_user, *args, **kwargs)
     
     return decorated 

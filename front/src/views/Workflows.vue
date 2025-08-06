@@ -34,7 +34,7 @@
     <n-modal
       v-model:show="showCreateModal"
       preset="card"
-      title="创建工作流"
+      :title="currentWorkflow ? '编辑工作流' : '创建工作流'"
       style="width: 600px"
       :mask-closable="false"
     >
@@ -74,9 +74,9 @@
 
       <template #footer>
         <div class="modal-footer">
-          <n-button @click="showCreateModal = false">取消</n-button>
+          <n-button @click="cancelEdit">取消</n-button>
           <n-button type="primary" @click="handleSubmit" :loading="submitting">
-            确定
+            {{ currentWorkflow ? '更新' : '创建' }}
           </n-button>
         </div>
       </template>
@@ -218,14 +218,23 @@ const pagination = ref({
   pageSize: 10,
   showSizePicker: true,
   pageSizes: [10, 20, 30, 40],
+  total: 0,
   onChange: (page: number) => {
     pagination.value.page = page
+    fetchWorkflows()
   },
   onUpdatePageSize: (pageSize: number) => {
     pagination.value.pageSize = pageSize
     pagination.value.page = 1
+    fetchWorkflows()
   }
 })
+
+// 处理页面变化
+const handlePageChange = (page: number) => {
+  pagination.value.page = page
+  fetchWorkflows()
+}
 
 // 表格列配置
 const columns = [
@@ -256,9 +265,10 @@ const columns = [
     title: '状态',
     key: 'status',
     render: (row: any) => {
+      const isActive = row.status === 'active' || row.status === true
       return h(NTag, {
-        type: row.status ? 'success' : 'error'
-      }, { default: () => row.status ? '启用' : '禁用' })
+        type: isActive ? 'success' : 'error'
+      }, { default: () => isActive ? '启用' : '禁用' })
     }
   },
   {
@@ -269,7 +279,12 @@ const columns = [
     title: '创建时间',
     key: 'created_at',
     render: (row: any) => {
-      return new Date(row.created_at).toLocaleString()
+      if (!row.created_at) return '未知时间'
+      try {
+        return new Date(row.created_at).toLocaleString('zh-CN')
+      } catch (error) {
+        return '未知时间'
+      }
     }
   },
   {
@@ -306,44 +321,55 @@ const columns = [
 const fetchWorkflows = async () => {
   loading.value = true
   try {
-    const response = await api.workflows.list()
-    if (response.data && response.data.success) {
-      workflows.value = response.data.data
-    } else {
-      // 使用模拟数据
-      workflows.value = [
-        {
-          id: '1',
-          name: '数据处理流程',
-          description: '自动处理和分析数据',
-          type: 'data_processing',
-          status: true,
-          execution_count: 156,
-          created_at: new Date().toISOString()
-        },
-        {
-          id: '2',
-          name: '客户服务自动化',
-          description: '自动处理客户请求和问题',
-          type: 'automation',
-          status: true,
-          execution_count: 89,
-          created_at: new Date(Date.now() - 86400000).toISOString()
-        },
-        {
-          id: '3',
-          name: '决策支持流程',
-          description: '基于规则和AI的决策流程',
-          type: 'decision',
-          status: false,
-          execution_count: 23,
-          created_at: new Date(Date.now() - 172800000).toISOString()
-        }
-      ]
+    const params = {
+      page: pagination.value.page,
+      limit: pagination.value.pageSize
     }
-  } catch (error) {
+    
+    console.log('🔍 获取工作流列表，参数:', params)
+    const response = await api.workflows.list(params)
+    console.log('🔍 Workflows API响应:', response)
+    
+    if (response.data && response.data.success) {
+      // 确保数据是数组
+      const responseData = response.data.data
+      if (Array.isArray(responseData)) {
+        workflows.value = responseData
+      } else if (responseData && Array.isArray(responseData.data)) {
+        workflows.value = responseData.data
+      } else if (responseData && Array.isArray(responseData.items)) {
+        workflows.value = responseData.items
+      } else {
+        workflows.value = []
+      }
+      
+      // 更新分页信息
+      if (responseData && typeof responseData === 'object') {
+        pagination.value.total = responseData.total || workflows.value.length
+      }
+      
+      console.log('✅ 工作流数据:', workflows.value)
+    } else {
+      throw new Error('API响应格式错误')
+    }
+  } catch (error: any) {
     console.error('获取工作流列表失败:', error)
-    message.error('获取工作流列表失败')
+    
+    // 根据错误类型显示不同的错误信息
+    if (error.code === 'ECONNABORTED') {
+      message.error('请求超时，请检查后端服务是否正常运行')
+    } else if (error.code === 'ERR_NETWORK') {
+      message.error('网络连接失败，请检查网络连接')
+    } else if (error.response?.status === 500) {
+      message.error('服务器内部错误，请稍后重试')
+    } else if (error.response?.status === 404) {
+      message.error('API端点不存在，请检查后端配置')
+    } else if (error.response?.status === 401) {
+      message.error('认证失败，请重新登录')
+    } else {
+      message.error(`获取工作流列表失败: ${error.message || '未知错误'}`)
+    }
+    
     // 使用模拟数据
     workflows.value = [
       {
@@ -353,7 +379,8 @@ const fetchWorkflows = async () => {
         type: 'data_processing',
         status: true,
         execution_count: 156,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       },
       {
         id: '2',
@@ -362,7 +389,8 @@ const fetchWorkflows = async () => {
         type: 'automation',
         status: true,
         execution_count: 89,
-        created_at: new Date(Date.now() - 86400000).toISOString()
+        created_at: new Date(Date.now() - 86400000).toISOString(),
+        updated_at: new Date(Date.now() - 86400000).toISOString()
       },
       {
         id: '3',
@@ -371,7 +399,8 @@ const fetchWorkflows = async () => {
         type: 'decision',
         status: false,
         execution_count: 23,
-        created_at: new Date(Date.now() - 172800000).toISOString()
+        created_at: new Date(Date.now() - 172800000).toISOString(),
+        updated_at: new Date(Date.now() - 172800000).toISOString()
       }
     ]
   } finally {
@@ -379,30 +408,49 @@ const fetchWorkflows = async () => {
   }
 }
 
-// 处理页面变化
-const handlePageChange = (page: number) => {
-  pagination.value.page = page
-}
-
 // 编辑工作流
 const handleEdit = (item: any) => {
   currentWorkflow.value = item
-  showEditorModal.value = true
+  formData.value = {
+    name: item.name,
+    description: item.description,
+    type: item.type,
+    status: item.status === 'active' || item.status === true
+  }
+  showCreateModal.value = true
+}
+
+// 取消编辑
+const cancelEdit = () => {
+  showCreateModal.value = false
+  currentWorkflow.value = null
+  formData.value = {
+    name: '',
+    description: '',
+    type: '',
+    status: true
+  }
+  // 重置表单验证状态
+  formRef.value?.restoreValidation()
 }
 
 // 保存工作流
 const handleSaveWorkflow = async (data: any) => {
   try {
     if (currentWorkflow.value) {
-      await api.workflows.update(currentWorkflow.value.id, {
+      const response = await api.workflows.update(currentWorkflow.value.id, {
         ...currentWorkflow.value,
         definition: data
       })
-      message.success('工作流保存成功')
-      showEditorModal.value = false
-      await fetchWorkflows()
+      if (response.data && response.data.success) {
+        message.success('工作流保存成功')
+        showEditorModal.value = false
+        await fetchWorkflows()
+      } else {
+        throw new Error('保存失败')
+      }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('保存工作流失败:', error)
     message.error('保存失败')
   }
@@ -412,7 +460,9 @@ const handleSaveWorkflow = async (data: any) => {
 const handleTestWorkflow = async (data: any) => {
   try {
     message.info('测试功能开发中...')
-  } catch (error) {
+    // TODO: 实现工作流测试功能
+    console.log('测试工作流数据:', data)
+  } catch (error: any) {
     console.error('测试工作流失败:', error)
     message.error('测试失败')
   }
@@ -422,13 +472,17 @@ const handleTestWorkflow = async (data: any) => {
 const handlePublishWorkflow = async (data: any) => {
   try {
     if (currentWorkflow.value) {
-      await api.workflows.publish(currentWorkflow.value.id, {
+      const response = await api.workflows.publish(currentWorkflow.value.id, {
         name: currentWorkflow.value.name,
         description: currentWorkflow.value.description
       })
-      message.success('工作流发布成功')
+      if (response.data && response.data.success) {
+        message.success('工作流发布成功')
+      } else {
+        throw new Error('发布失败')
+      }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('发布工作流失败:', error)
     message.error('发布失败')
   }
@@ -439,6 +493,7 @@ const handleExecute = (item: any) => {
   currentWorkflow.value = item
   executeData.value.input = ''
   showExecuteModal.value = true
+  console.log('准备执行工作流:', item)
 }
 
 // 处理执行提交
@@ -447,12 +502,25 @@ const handleExecuteSubmit = async () => {
   
   executing.value = true
   try {
-    const input = executeData.value.input ? JSON.parse(executeData.value.input) : {}
-    await api.workflows.execute(currentWorkflow.value.id, input)
-    message.success('工作流执行成功')
-    showExecuteModal.value = false
-    await fetchWorkflows()
-  } catch (error) {
+    let input = {}
+    if (executeData.value.input) {
+      try {
+        input = JSON.parse(executeData.value.input)
+      } catch (e) {
+        message.error('输入参数JSON格式错误')
+        return
+      }
+    }
+    
+    const response = await api.workflows.execute(currentWorkflow.value.id, input)
+    if (response.data && response.data.success) {
+      message.success('工作流执行成功')
+      showExecuteModal.value = false
+      await fetchWorkflows()
+    } else {
+      throw new Error('执行失败')
+    }
+  } catch (error: any) {
     console.error('执行工作流失败:', error)
     message.error('执行失败')
   } finally {
@@ -463,10 +531,14 @@ const handleExecuteSubmit = async () => {
 // 删除工作流
 const handleDelete = async (item: any) => {
   try {
-    await api.workflows.delete(item.id)
-    message.success('删除成功')
-    await fetchWorkflows()
-  } catch (error) {
+    const response = await api.workflows.delete(item.id)
+    if (response.data && response.data.success) {
+      message.success('删除成功')
+      await fetchWorkflows()
+    } else {
+      throw new Error('删除失败')
+    }
+  } catch (error: any) {
     console.error('删除工作流失败:', error)
     message.error('删除失败')
   }
@@ -478,21 +550,47 @@ const handleSubmit = async () => {
     await formRef.value?.validate()
     submitting.value = true
 
+    const submitData = {
+      name: formData.value.name,
+      description: formData.value.description,
+      type: formData.value.type,
+      status: formData.value.status ? 'active' : 'inactive'
+    }
+
     if (currentWorkflow.value) {
       // 更新
-      await api.workflows.update(currentWorkflow.value.id, formData.value)
-      message.success('更新成功')
+      const response = await api.workflows.update(currentWorkflow.value.id, submitData)
+      if (response.data && response.data.success) {
+        message.success('更新成功')
+      } else {
+        throw new Error('更新失败')
+      }
     } else {
       // 创建
-      await api.workflows.create(formData.value)
-      message.success('创建成功')
+      const response = await api.workflows.create(submitData)
+      if (response.data && response.data.success) {
+        message.success('创建成功')
+      } else {
+        throw new Error('创建失败')
+      }
     }
 
     showCreateModal.value = false
+    currentWorkflow.value = null
+    formData.value = {
+      name: '',
+      description: '',
+      type: '',
+      status: true
+    }
     await fetchWorkflows()
-  } catch (error) {
+  } catch (error: any) {
     console.error('提交失败:', error)
-    message.error('提交失败')
+    if (error.message) {
+      message.error(error.message)
+    } else {
+      message.error('提交失败')
+    }
   } finally {
     submitting.value = false
   }
@@ -501,6 +599,7 @@ const handleSubmit = async () => {
 // 组件挂载
 onMounted(() => {
   fetchWorkflows()
+  console.log('工作流页面已挂载')
 })
 </script>
 
