@@ -165,6 +165,27 @@ const rules = {
   ]
 }
 
+// 统一的错误处理函数
+const handleError = (error: any, operation: string = '操作') => {
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '用户名或密码错误'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `${operation}失败: ${error.message || '未知错误'}`
+  }
+}
+
 const handleLogin = async () => {
   try {
     // 验证表单
@@ -203,30 +224,43 @@ const handleLogin = async () => {
       message.success('登录成功')
       router.push('/')
     } else {
-      message.error(response.data.message || '登录失败')
+      throw new Error('登录失败')
     }
   } catch (error: any) {
     console.error('登录错误:', error)
-    
-    if (error.response?.status === 401) {
-      message.error('用户名或密码错误')
-    } else if (error.response?.status === 400) {
-      message.error(error.response.data.message || '请求参数错误')
-    } else {
-      message.error('登录失败，请检查网络连接')
-    }
+    message.error(handleError(error, '登录'))
   } finally {
     loading.value = false
   }
 }
 
-const skipLogin = () => {
+const skipLogin = async () => {
   if (isDev) {
-    localStorage.setItem('token', 'dev-token-12345') // 开发环境token
-    localStorage.setItem('skip_login_token', 'true') // 标记跳过登录
-    localStorage.setItem('user', JSON.stringify({ username: 'dev_user', id: 'dev-user-12345' })) // 模拟用户信息
-    message.success('开发环境跳过登录成功！')
-    router.push('/')
+    try {
+      loading.value = true
+      
+      // 使用生产环境API创建开发用户
+      const response = await api.auth.register({
+        username: 'dev_user',
+        email: 'dev_user@example.com',
+        password: 'dev_password_123'
+      })
+      
+      if (response.data.success) {
+        // 使用真实的token和用户信息
+        localStorage.setItem('token', response.data.data.token)
+        localStorage.setItem('user', JSON.stringify(response.data.data.user))
+        message.success('开发环境跳过登录成功！')
+        router.push('/')
+      } else {
+        throw new Error('开发用户创建失败')
+      }
+    } catch (error: any) {
+      console.error('开发环境跳过登录失败:', error)
+      message.error(handleError(error, '开发环境跳过登录'))
+    } finally {
+      loading.value = false
+    }
   }
 }
 

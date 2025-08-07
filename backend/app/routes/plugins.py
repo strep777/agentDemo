@@ -420,6 +420,68 @@ def test_plugin(current_user, plugin_id):
     except Exception as e:
         return jsonify(ApiResponse.error(str(e))), 400
 
+@plugins_bp.route('/<plugin_id>/config', methods=['GET'])
+@token_required
+@handle_exception
+def get_plugin_config(current_user, plugin_id):
+    """获取插件配置"""
+    try:
+        # 验证ID格式
+        if not ObjectId.is_valid(plugin_id):
+            return jsonify(ApiResponse.error('无效的插件ID')), 400
+        
+        db = get_db()
+        
+        # 检查插件是否存在
+        plugin = db.plugins.find_one({
+            '_id': ObjectId(plugin_id),
+            'user_id': current_user['id']
+        })
+        
+        if not plugin:
+            return jsonify(ApiResponse.error('插件不存在')), 404
+        
+        config = plugin.get('config', {})
+        return jsonify(ApiResponse.success(config, "获取插件配置成功"))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
+@plugins_bp.route('/<plugin_id>/config', methods=['PUT'])
+@token_required
+@handle_exception
+def update_plugin_config(current_user, plugin_id):
+    """更新插件配置"""
+    try:
+        # 验证ID格式
+        if not ObjectId.is_valid(plugin_id):
+            return jsonify(ApiResponse.error('无效的插件ID')), 400
+        
+        data = request.get_json()
+        config = data.get('config', {})
+        
+        db = get_db()
+        
+        # 检查插件是否存在
+        plugin = db.plugins.find_one({
+            '_id': ObjectId(plugin_id),
+            'user_id': current_user['id']
+        })
+        
+        if not plugin:
+            return jsonify(ApiResponse.error('插件不存在')), 404
+        
+        # 更新配置
+        db.plugins.update_one(
+            {'_id': ObjectId(plugin_id)},
+            {'$set': {'config': config, 'updated_at': datetime.now()}}
+        )
+        
+        return jsonify(ApiResponse.success(None, "插件配置更新成功"))
+        
+    except Exception as e:
+        return jsonify(ApiResponse.error(str(e))), 400
+
 @plugins_bp.route('/<plugin_id>/execute', methods=['POST'])
 @token_required
 @handle_exception
@@ -483,68 +545,6 @@ def get_available_plugins(current_user):
         
     except Exception as e:
         return jsonify(ApiResponse.error(str(e))), 400
-
-@plugins_bp.route('/<plugin_id>/config', methods=['GET'])
-@token_required
-@handle_exception
-def get_plugin_config(current_user, plugin_id):
-    """获取插件配置"""
-    try:
-        # 验证ID格式
-        if not ObjectId.is_valid(plugin_id):
-            return jsonify(ApiResponse.error('无效的插件ID')), 400
-        
-        db = get_db()
-        
-        # 检查插件是否存在
-        plugin = db.plugins.find_one({
-            '_id': ObjectId(plugin_id),
-            'user_id': current_user['id']
-        })
-        
-        if not plugin:
-            return jsonify(ApiResponse.error('插件不存在')), 404
-        
-        config = plugin.get('config', {})
-        return jsonify(ApiResponse.success(config, "获取插件配置成功"))
-        
-    except Exception as e:
-        return jsonify(ApiResponse.error(str(e))), 400
-
-@plugins_bp.route('/<plugin_id>/config', methods=['PUT'])
-@token_required
-@handle_exception
-def update_plugin_config(current_user, plugin_id):
-    """更新插件配置"""
-    try:
-        # 验证ID格式
-        if not ObjectId.is_valid(plugin_id):
-            return jsonify(ApiResponse.error('无效的插件ID')), 400
-        
-        data = request.get_json()
-        config = data.get('config', {})
-        
-        db = get_db()
-        
-        # 检查插件是否存在
-        plugin = db.plugins.find_one({
-            '_id': ObjectId(plugin_id),
-            'user_id': current_user['id']
-        })
-        
-        if not plugin:
-            return jsonify(ApiResponse.error('插件不存在')), 404
-        
-        # 更新配置
-        db.plugins.update_one(
-            {'_id': ObjectId(plugin_id)},
-            {'$set': {'config': config, 'updated_at': datetime.now()}}
-        )
-        
-        return jsonify(ApiResponse.success(None, "插件配置更新成功"))
-        
-    except Exception as e:
-        return jsonify(ApiResponse.error(str(e))), 400 
 
 @plugins_bp.route('/batch-delete', methods=['POST'])
 @token_required

@@ -218,6 +218,27 @@ const rules = {
   ]
 }
 
+// 统一的错误处理函数
+const handleError = (error: any, operation: string = '操作') => {
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '认证失败，请重新登录'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `${operation}失败: ${error.message || '未知错误'}`
+  }
+}
+
 const handleRegister = async () => {
   try {
     // 验证表单
@@ -240,16 +261,11 @@ const handleRegister = async () => {
       message.success('注册成功')
       router.push('/')
     } else {
-      message.error(response.data.message || '注册失败')
+      throw new Error('注册失败')
     }
   } catch (error: any) {
     console.error('注册错误:', error)
-    
-    if (error.response?.status === 400) {
-      message.error(error.response.data.message || '注册失败，请检查输入信息')
-    } else {
-      message.error('注册失败，请检查网络连接')
-    }
+    message.error(handleError(error, '注册'))
   } finally {
     loading.value = false
   }

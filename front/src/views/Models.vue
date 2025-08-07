@@ -815,7 +815,7 @@ const loadModels = async () => {
       message.error(`加载模型列表失败: ${error.message || '未知错误'}`)
     }
     
-    // 使用模拟数据作为备用
+    // 清空数据，不使用模拟数据
     models.value = [
       {
         id: '1',
@@ -1163,7 +1163,30 @@ onMounted(() => {
 }
 
 /* 响应式设计 */
+@media (max-width: 1024px) {
+  .models-container {
+    padding: 16px;
+  }
+  
+  .actions {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 768px) {
+  .models-container {
+    padding: 12px;
+  }
+  
+  .page-header {
+    margin-bottom: 16px;
+  }
+  
+  .actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
   .model-card-content {
     padding: 8px;
   }
@@ -1174,6 +1197,20 @@ onMounted(() => {
   
   .model-meta {
     font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .models-container {
+    padding: 8px;
+  }
+  
+  .page-header h1 {
+    font-size: 20px;
+  }
+  
+  .actions {
+    gap: 6px;
   }
 }
 

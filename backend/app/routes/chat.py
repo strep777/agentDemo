@@ -497,6 +497,10 @@ def stream_chat(current_user):
                         'size': os.path.getsize(file_path),
                         'type': file.content_type
                     })
+        elif 'attachments' in data:
+            # 处理前端传递的附件信息
+            files = data.get('attachments', [])
+            print(f"📎 处理附件: {len(files)} 个文件")
         
         print(f"🔄 开始流式聊天 - 对话ID: {conversation_id}, 内容: {content[:50]}...")
         print(f"🔧 深度思考: {show_thinking}, 模型ID: {model_id}, 附件数量: {len(attachments)}, 文件数量: {len(files)}")

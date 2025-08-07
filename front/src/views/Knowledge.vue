@@ -370,7 +370,14 @@ const filteredKnowledge = computed(() => {
 const fetchKnowledge = async () => {
   loading.value = true
   try {
+    console.log('🔍 获取知识库列表')
+    
+    // 使用生产环境数据
+    console.log('📊 使用生产环境数据加载知识库列表')
+    
     const response = await api.knowledge.list()
+    console.log('🔍 Knowledge API响应:', response)
+    
     if (response.data && response.data.success) {
       // 确保数据是数组
       const responseData = response.data.data
@@ -384,64 +391,50 @@ const fetchKnowledge = async () => {
         knowledge.value = []
       }
       
+      // 确保知识库数据的一致性
+      knowledge.value = knowledge.value.filter(item => 
+        item && item.id && item.name && 
+        (item.status === true || item.status === false)
+      )
+      
       // 更新分页信息
       if (responseData && typeof responseData === 'object') {
         pagination.value.total = responseData.total || knowledge.value.length
       }
       
-      console.log('✅ 知识库数据:', knowledge.value)
+      console.log('✅ 知识库数据加载成功:', knowledge.value)
     } else {
-      throw new Error('API响应格式错误')
+      throw new Error(response.data?.message || 'API响应格式错误')
     }
   } catch (error: any) {
     console.error('获取知识库列表失败:', error)
     
-    // 根据错误类型显示不同的错误信息
-    if (error.code === 'ECONNABORTED') {
-      message.error('请求超时，请检查后端服务是否正常运行')
-    } else if (error.code === 'ERR_NETWORK') {
-      message.error('网络连接失败，请检查网络连接')
-    } else if (error.response?.status === 500) {
-      message.error('服务器内部错误，请稍后重试')
-    } else if (error.response?.status === 404) {
-      message.error('API端点不存在，请检查后端配置')
-    } else if (error.response?.status === 401) {
-      message.error('认证失败，请重新登录')
-    } else {
-      message.error(`获取知识库列表失败: ${error.message || '未知错误'}`)
+    // 统一的错误处理函数
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `获取知识库列表失败: ${error.message || '未知错误'}`
+      }
     }
     
-    // 使用模拟数据
-    knowledge.value = [
-      {
-        id: '1',
-        name: '产品文档库',
-        description: '包含所有产品相关文档',
-        type: 'document',
-        document_count: 25,
-        status: true,
-        created_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        name: '客服FAQ库',
-        description: '常见问题解答库',
-        type: 'faq',
-        document_count: 150,
-        status: true,
-        created_at: new Date(Date.now() - 86400000).toISOString()
-      },
-      {
-        id: '3',
-        name: '技术知识图谱',
-        description: '技术知识关联图谱',
-        type: 'knowledge_graph',
-        document_count: 8,
-        status: false,
-        created_at: new Date(Date.now() - 172800000).toISOString()
-      }
-    ]
-    pagination.value.total = 3
+    message.error(handleError(error))
+    
+    // 清空数据而不是使用模拟数据
+    knowledge.value = []
+    pagination.value.total = 0
   } finally {
     loading.value = false
   }
@@ -449,12 +442,14 @@ const fetchKnowledge = async () => {
 
 // 处理页面变化
 const handlePageChange = (page: number) => {
+  console.log('📄 页面变化:', page)
   pagination.value.page = page
   fetchKnowledge()
 }
 
 // 查看知识库详情
 const handleView = (item: any) => {
+  console.log('🔍 查看知识库详情:', item)
   // 这里可以跳转到知识库详情页面
   message.info(`查看知识库: ${item.name}`)
 }
@@ -476,13 +471,36 @@ const handleUpload = async (options: any) => {
     }
   } catch (error: any) {
     console.error('文件上传失败:', error)
-    message.error('文件上传失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `文件上传失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
     file.status = 'error'
   }
 }
 
 // 打开上传模态框
 const openUploadModal = (item: any) => {
+  console.log('📁 打开上传模态框:', item)
   currentKnowledge.value = item
   showUploadModal.value = true
 }
@@ -493,13 +511,36 @@ const handleUploadSubmit = async () => {
   
   uploading.value = true
   try {
+    console.log('📤 开始批量上传文件')
     // 这里可以处理批量上传逻辑
     message.success('上传成功')
     showUploadModal.value = false
     await fetchKnowledge()
   } catch (error: any) {
     console.error('上传失败:', error)
-    message.error('上传失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `上传失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   } finally {
     uploading.value = false
   }
@@ -516,7 +557,29 @@ const handleRebuildIndex = async (item: any) => {
     }
   } catch (error: any) {
     console.error('重建索引失败:', error)
-    message.error('重建索引失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `重建索引失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   }
 }
 
@@ -532,12 +595,35 @@ const handleDelete = async (item: any) => {
     }
   } catch (error: any) {
     console.error('删除知识库失败:', error)
-    message.error('删除失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `删除失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   }
 }
 
 // 编辑知识库
 const handleEdit = (item: any) => {
+  console.log('✏️ 编辑知识库:', item)
   currentKnowledge.value = item
   formData.value = {
     name: item.name,
@@ -551,6 +637,7 @@ const handleEdit = (item: any) => {
 
 // 取消编辑
 const cancelEdit = () => {
+  console.log('❌ 取消编辑')
   showCreateModal.value = false
   currentKnowledge.value = null
   formData.value = {
@@ -607,11 +694,29 @@ const handleSubmit = async () => {
     await fetchKnowledge()
   } catch (error: any) {
     console.error('提交失败:', error)
-    if (error.message) {
-      message.error(error.message)
-    } else {
-      message.error('提交失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `提交失败: ${error.message || '未知错误'}`
+      }
     }
+    
+    message.error(handleError(error))
   } finally {
     submitting.value = false
   }
@@ -619,6 +724,7 @@ const handleSubmit = async () => {
 
 // 组件挂载
 onMounted(() => {
+  console.log('🚀 知识库页面挂载')
   fetchKnowledge()
 })
 </script>
@@ -693,5 +799,56 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+  .filter-content {
+    flex-wrap: wrap;
+  }
+  
+  .search-input {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .header-right {
+    width: 100%;
+  }
+  
+  .filter-content {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .search-input,
+  .filter-select {
+    max-width: 100%;
+    min-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .knowledge-page {
+    gap: 16px;
+  }
+  
+  .page-title {
+    font-size: 20px;
+  }
+  
+  .filter-card {
+    padding: 12px;
+  }
+  
+  .filter-content {
+    gap: 8px;
+  }
 }
 </style> 

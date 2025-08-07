@@ -152,6 +152,7 @@ export const api = {
     delete: (id: string) => instance.delete(`/plugins/${id}`),
     toggleStatus: (id: string) => instance.put(`/plugins/${id}/toggle`),
     test: (id: string, data: any) => instance.post(`/plugins/${id}/test`, data),
+    execute: (id: string, data: any) => instance.post(`/plugins/${id}/execute`, data),
     upload: (file: File) => {
       const formData = new FormData()
       formData.append('file', file)
@@ -161,9 +162,17 @@ export const api = {
         }
       })
     },
+    download: (id: string) => instance.get(`/plugins/${id}/download`),
+    getConfig: (id: string) => instance.get(`/plugins/${id}/config`),
+    updateConfig: (id: string, config: any) => instance.put(`/plugins/${id}/config`, { config }),
+    getAvailable: () => instance.get('/plugins/available'),
     batchDelete: (ids: string[]) => instance.post('/plugins/batch-delete', { plugin_ids: ids }),
     batchEnable: (ids: string[]) => instance.post('/plugins/batch-enable', { plugin_ids: ids }),
-    batchDisable: (ids: string[]) => instance.post('/plugins/batch-disable', { plugin_ids: ids })
+    batchDisable: (ids: string[]) => instance.post('/plugins/batch-disable', { plugin_ids: ids }),
+    // 市场相关
+    getMarket: () => instance.get('/plugins/market'),
+    searchMarket: (query: string) => instance.get('/plugins/search', { params: { q: query } }),
+    installFromMarket: (pluginId: string) => instance.post(`/plugins/market/${pluginId}/install`)
   },
 
   // 模型相关
@@ -231,7 +240,18 @@ export const api = {
   // 设置相关
   settings: {
     get: () => instance.get('/settings'),
-    update: (data: any) => instance.put('/settings', data)
+    update: (data: any) => instance.put('/settings', data),
+    system: {
+      get: () => instance.get('/settings/system'),
+      update: (data: any) => instance.post('/settings/system', data)
+    },
+    notifications: {
+      get: () => instance.get('/settings/notifications'),
+      update: (data: any) => instance.post('/settings/notifications', data)
+    },
+    export: (type: string) => instance.get(`/settings/export/${type}`),
+    clear: (type: string) => instance.delete(`/settings/clear/${type}`),
+    clearAll: () => instance.delete('/settings/clear/all')
   },
 
   // 认证相关
@@ -240,7 +260,9 @@ export const api = {
     register: (userData: any) => instance.post('/auth/register', userData),
     logout: () => instance.post('/auth/logout'),
     profile: () => instance.get('/auth/profile'),
-    refresh: () => instance.post('/auth/refresh')
+    updateProfile: (data: any) => instance.put('/auth/profile', data),
+    refresh: () => instance.post('/auth/refresh'),
+    changePassword: (data: any) => instance.post('/auth/change-password', data)
   }
 }
 

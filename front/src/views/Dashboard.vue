@@ -138,6 +138,29 @@ dayjs.extend(relativeTime)
 
 const message = useMessage()
 
+// 统一的错误处理函数
+const handleError = (error: any): string => {
+  console.error('API错误:', error)
+  
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '认证失败，请重新登录'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `操作失败: ${error.message || '未知错误'}`
+  }
+}
+
 // 响应式数据
 const loading = ref(true)
 const stats = ref({
@@ -158,27 +181,23 @@ let agentPerformanceChartInstance: echarts.ECharts | null = null
 // 获取统计数据
 const fetchStats = async () => {
   try {
+    console.log('📊 开始获取统计数据...')
     const response = await api.dashboard.stats()
     if (response.data && response.data.success) {
       stats.value = response.data.data
+      console.log('✅ 统计数据获取成功:', stats.value)
     } else {
-      // 使用模拟数据
-      stats.value = {
-        totalAgents: 12,
-        totalConversations: 156,
-        totalKnowledge: 8,
-        totalPlugins: 15
-      }
+      throw new Error(response.data?.message || '获取统计数据失败')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('获取统计数据失败:', error)
-    message.error('获取统计数据失败')
-    // 使用模拟数据
+    message.error(handleError(error))
+    // 清空数据，不使用模拟数据
     stats.value = {
-      totalAgents: 12,
-      totalConversations: 156,
-      totalKnowledge: 8,
-      totalPlugins: 15
+      totalAgents: 0,
+      totalConversations: 0,
+      totalKnowledge: 0,
+      totalPlugins: 0
     }
   }
 }
@@ -186,45 +205,18 @@ const fetchStats = async () => {
 // 获取最近活动
 const fetchRecentActivities = async () => {
   try {
+    console.log('📋 开始获取最近活动...')
     const response = await api.dashboard.recent()
     if (response.data && response.data.success) {
       recentActivities.value = response.data.data
+      console.log('✅ 最近活动获取成功:', recentActivities.value.length, '个活动')
     } else {
-      // 使用模拟数据
-      recentActivities.value = [
-        {
-          id: 1,
-          type: 'conversation',
-          title: '新对话开始',
-          description: '用户与智能体Agent-001开始对话',
-          timestamp: new Date()
-        },
-        {
-          id: 2,
-          type: 'agent',
-          title: '智能体创建',
-          description: '创建了新的智能体Agent-002',
-          timestamp: new Date(Date.now() - 3600000)
-        },
-        {
-          id: 3,
-          type: 'knowledge',
-          title: '知识库更新',
-          description: '更新了知识库"产品文档"',
-          timestamp: new Date(Date.now() - 7200000)
-        },
-        {
-          id: 4,
-          type: 'plugin',
-          title: '插件安装',
-          description: '安装了插件"数据分析工具"',
-          timestamp: new Date(Date.now() - 10800000)
-        }
-      ]
+      throw new Error(response.data?.message || '获取最近活动失败')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('获取最近活动失败:', error)
-    message.error('获取最近活动失败')
+    message.error(handleError(error))
+    // 清空数据，不使用模拟数据
     recentActivities.value = []
   }
 }
@@ -593,6 +585,42 @@ onUnmounted(() => {
 }
 
 /* 响应式设计 */
+@media (max-width: 1200px) {
+  .dashboard {
+    padding: 20px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+  }
+  
+  .charts-grid {
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    gap: 16px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .dashboard {
+    padding: 16px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .charts-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .chart-container {
+    height: 300px;
+  }
+}
+
 @media (max-width: 768px) {
   .dashboard {
     padding: 16px;
@@ -600,14 +628,42 @@ onUnmounted(() => {
   
   .stats-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
   
   .charts-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
   
   .chart-container {
     height: 250px;
+  }
+  
+  .stat-content {
+    gap: 12px;
+  }
+  
+  .stat-icon {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .stat-value {
+    font-size: 24px;
+  }
+  
+  .activity-item {
+    padding: 8px 0;
+    gap: 8px;
+  }
+  
+  .activity-title {
+    font-size: 13px;
+  }
+  
+  .activity-description {
+    font-size: 11px;
   }
 }
 
@@ -616,12 +672,49 @@ onUnmounted(() => {
     padding: 12px;
   }
   
-  .stat-value {
-    font-size: 24px;
+  .stats-grid {
+    gap: 8px;
+  }
+  
+  .charts-grid {
+    gap: 8px;
   }
   
   .chart-container {
     height: 200px;
+  }
+  
+  .stat-content {
+    gap: 8px;
+  }
+  
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .stat-value {
+    font-size: 20px;
+  }
+  
+  .stat-label {
+    font-size: 12px;
+  }
+  
+  .activity-item {
+    padding: 6px 0;
+  }
+  
+  .activity-title {
+    font-size: 12px;
+  }
+  
+  .activity-description {
+    font-size: 10px;
+  }
+  
+  .activity-time {
+    font-size: 10px;
   }
 }
 

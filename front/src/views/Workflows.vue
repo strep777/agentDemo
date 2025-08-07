@@ -355,54 +355,32 @@ const fetchWorkflows = async () => {
   } catch (error: any) {
     console.error('获取工作流列表失败:', error)
     
-    // 根据错误类型显示不同的错误信息
-    if (error.code === 'ECONNABORTED') {
-      message.error('请求超时，请检查后端服务是否正常运行')
-    } else if (error.code === 'ERR_NETWORK') {
-      message.error('网络连接失败，请检查网络连接')
-    } else if (error.response?.status === 500) {
-      message.error('服务器内部错误，请稍后重试')
-    } else if (error.response?.status === 404) {
-      message.error('API端点不存在，请检查后端配置')
-    } else if (error.response?.status === 401) {
-      message.error('认证失败，请重新登录')
-    } else {
-      message.error(`获取工作流列表失败: ${error.message || '未知错误'}`)
+    // 统一的错误处理函数
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `获取工作流列表失败: ${error.message || '未知错误'}`
+      }
     }
     
-    // 使用模拟数据
-    workflows.value = [
-      {
-        id: '1',
-        name: '数据处理流程',
-        description: '自动处理和分析数据',
-        type: 'data_processing',
-        status: true,
-        execution_count: 156,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        name: '客户服务自动化',
-        description: '自动处理客户请求和问题',
-        type: 'automation',
-        status: true,
-        execution_count: 89,
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        updated_at: new Date(Date.now() - 86400000).toISOString()
-      },
-      {
-        id: '3',
-        name: '决策支持流程',
-        description: '基于规则和AI的决策流程',
-        type: 'decision',
-        status: false,
-        execution_count: 23,
-        created_at: new Date(Date.now() - 172800000).toISOString(),
-        updated_at: new Date(Date.now() - 172800000).toISOString()
-      }
-    ]
+    message.error(handleError(error))
+    
+    // 清空数据而不是使用模拟数据
+    workflows.value = []
+    pagination.value.total = 0
   } finally {
     loading.value = false
   }
@@ -452,19 +430,69 @@ const handleSaveWorkflow = async (data: any) => {
     }
   } catch (error: any) {
     console.error('保存工作流失败:', error)
-    message.error('保存失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `保存失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   }
 }
 
 // 测试工作流
 const handleTestWorkflow = async (data: any) => {
   try {
-    message.info('测试功能开发中...')
-    // TODO: 实现工作流测试功能
-    console.log('测试工作流数据:', data)
+    if (currentWorkflow.value) {
+      const response = await api.workflows.validate(data)
+      if (response.data && response.data.success) {
+        message.success('工作流测试成功')
+        console.log('测试结果:', response.data.data)
+      } else {
+        throw new Error('测试失败')
+      }
+    }
   } catch (error: any) {
     console.error('测试工作流失败:', error)
-    message.error('测试失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `测试失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   }
 }
 
@@ -484,7 +512,29 @@ const handlePublishWorkflow = async (data: any) => {
     }
   } catch (error: any) {
     console.error('发布工作流失败:', error)
-    message.error('发布失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `发布失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   }
 }
 
@@ -522,7 +572,29 @@ const handleExecuteSubmit = async () => {
     }
   } catch (error: any) {
     console.error('执行工作流失败:', error)
-    message.error('执行失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `执行失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   } finally {
     executing.value = false
   }
@@ -540,7 +612,29 @@ const handleDelete = async (item: any) => {
     }
   } catch (error: any) {
     console.error('删除工作流失败:', error)
-    message.error('删除失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `删除失败: ${error.message || '未知错误'}`
+      }
+    }
+    
+    message.error(handleError(error))
   }
 }
 
@@ -586,11 +680,29 @@ const handleSubmit = async () => {
     await fetchWorkflows()
   } catch (error: any) {
     console.error('提交失败:', error)
-    if (error.message) {
-      message.error(error.message)
-    } else {
-      message.error('提交失败')
+    
+    // 统一的错误处理
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `提交失败: ${error.message || '未知错误'}`
+      }
     }
+    
+    message.error(handleError(error))
   } finally {
     submitting.value = false
   }
@@ -653,5 +765,27 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .header-right {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .workflows-page {
+    gap: 16px;
+  }
+  
+  .page-title {
+    font-size: 20px;
+  }
 }
 </style> 

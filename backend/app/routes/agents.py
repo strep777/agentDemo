@@ -93,7 +93,7 @@ def get_agents(current_user):
         
     except Exception as e:
         print(f"❌ 获取智能体列表失败: {str(e)}")
-        return jsonify(ApiResponse.error(str(e))), 400
+        return jsonify(ApiResponse.error(f"获取智能体列表失败: {str(e)}")), 400
 
 # 获取单个智能体
 @agents_bp.route('/<agent_id>', methods=['GET'])
@@ -141,7 +141,8 @@ def get_agent(current_user, agent_id):
         return jsonify(ApiResponse.success(serialized_agent, "获取智能体详情成功"))
         
     except Exception as e:
-        return jsonify(ApiResponse.error(str(e))), 400
+        print(f"❌ 获取智能体详情失败: {str(e)}")
+        return jsonify(ApiResponse.error(f"获取智能体详情失败: {str(e)}")), 400
 
 # 创建智能体
 @agents_bp.route('', methods=['POST'])
@@ -206,7 +207,7 @@ def create_agent(current_user):
         
     except Exception as e:
         print(f"❌ 创建智能体失败: {str(e)}")
-        return jsonify(ApiResponse.error(str(e))), 400
+        return jsonify(ApiResponse.error(f"创建智能体失败: {str(e)}")), 400
 
 # 更新智能体
 @agents_bp.route('/<agent_id>', methods=['PUT'])
@@ -246,6 +247,8 @@ def update_agent(current_user, agent_id):
         else:
             status = 'active'
         
+        print(f"🔄 智能体状态更新: {agent.get('status', 'unknown')} -> {status}")
+        
         # 处理模型名称
         model_name = data.get('model_name', agent.get('model_name', 'llama2'))
         if 'model' in data and not model_name:
@@ -263,7 +266,8 @@ def update_agent(current_user, agent_id):
                 update_data[field] = data[field]
         
         # 处理状态字段
-        update_data['status'] = str(status)
+        if 'status' in data:
+            update_data['status'] = status
         
         print(f"💾 更新智能体数据: {update_data}")
         
@@ -278,7 +282,7 @@ def update_agent(current_user, agent_id):
         
     except Exception as e:
         print(f"❌ 更新智能体失败: {str(e)}")
-        return jsonify(ApiResponse.error(str(e))), 400
+        return jsonify(ApiResponse.error(f"更新智能体失败: {str(e)}")), 400
 
 # 删除智能体
 @agents_bp.route('/<agent_id>', methods=['DELETE'])

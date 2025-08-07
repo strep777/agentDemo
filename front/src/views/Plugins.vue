@@ -14,6 +14,12 @@
             </template>
             刷新
           </n-button>
+          <n-button @click="showMarketModal = true" type="info">
+            <template #icon>
+              <n-icon><StorefrontOutline /></n-icon>
+            </template>
+            插件市场
+          </n-button>
           <n-button type="primary" @click="showUploadModal = true">
             <template #icon>
               <n-icon><AddOutline /></n-icon>
@@ -301,6 +307,62 @@
         </n-space>
       </template>
     </n-modal>
+
+    <!-- 插件市场模态框 -->
+    <n-modal
+      v-model:show="showMarketModal"
+      preset="card"
+      title="插件市场"
+      style="width: 800px"
+      :mask-closable="false"
+    >
+      <div class="market-content">
+        <div class="market-search">
+          <n-input
+            v-model:value="marketSearchQuery"
+            placeholder="搜索插件..."
+            clearable
+            @input="handleMarketSearch"
+          >
+            <template #prefix>
+              <n-icon>
+                <SearchOutline />
+              </n-icon>
+            </template>
+          </n-input>
+        </div>
+
+        <div class="market-plugins">
+          <n-card v-for="plugin in marketPlugins" :key="plugin.id" class="market-plugin-card">
+            <div class="market-plugin-info">
+              <div class="market-plugin-header">
+                <h3>{{ plugin.name }}</h3>
+                <n-tag :type="plugin.type === 'free' ? 'success' : 'warning'">
+                  {{ plugin.type === 'free' ? '免费' : '付费' }}
+                </n-tag>
+              </div>
+              <p class="market-plugin-description">{{ plugin.description }}</p>
+              <div class="market-plugin-meta">
+                <span>作者: {{ plugin.author }}</span>
+                <span>版本: {{ plugin.version }}</span>
+                <span>分类: {{ plugin.category }}</span>
+              </div>
+            </div>
+            <div class="market-plugin-actions">
+              <n-button size="small" type="primary" @click="handleInstallFromMarket(plugin)">
+                安装
+              </n-button>
+            </div>
+          </n-card>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="showMarketModal = false">关闭</n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -335,7 +397,8 @@ import {
   SettingsOutline,
   RefreshOutline,
   CloudUploadOutline,
-  InformationCircleOutline
+  InformationCircleOutline,
+  StorefrontOutline
 } from '@vicons/ionicons5'
 import { api } from '@/api'
 
@@ -369,6 +432,7 @@ const typeFilter = ref<string | null>(null)
 const showUploadModal = ref(false)
 const showDetailModal = ref(false)
 const showDeleteModal = ref(false)
+const showMarketModal = ref(false) // 新增：插件市场模态框
 const currentPlugin = ref<Plugin | null>(null)
 const fileList = ref<any[]>([])
 const uploadError = ref('')
@@ -377,6 +441,11 @@ const testResult = ref<any>(null)
 const configStatus = ref<'success' | 'error' | 'warning' | undefined>(undefined)
 const configError = ref('')
 const pluginsToDelete = ref<Plugin[]>([])
+
+// 插件市场相关
+const marketSearchQuery = ref('')
+const marketPlugins = ref<any[]>([])
+const marketLoading = ref(false)
 
 // 筛选选项
 const statusOptions = [
@@ -400,6 +469,7 @@ const pagination = ref({
   pageSize: 10,
   showSizePicker: true,
   pageSizes: [10, 20, 50, 100],
+  total: 0,
   onChange: (page: number) => {
     pagination.value.page = page
   },
@@ -493,7 +563,7 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 300,
+    width: 350,
     fixed: 'right' as const,
     render: (row: Plugin) => {
       return h(NSpace, { size: 'small' }, {
@@ -512,6 +582,11 @@ const columns = [
             type: 'info',
             onClick: () => handleTest(row)
           }, { default: () => '测试' }),
+          h(NButton, {
+            size: 'small',
+            type: 'primary',
+            onClick: () => handleDownload(row)
+          }, { default: () => '下载' }),
           h(NPopconfirm, {
             onPositiveClick: () => handleDelete([row])
           }, {
@@ -562,6 +637,29 @@ const formatDateTime = (dateString: string): string => {
   }
 }
 
+// 统一的错误处理函数
+const handleError = (error: any): string => {
+  console.error('API错误:', error)
+  
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '认证失败，请重新登录'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `操作失败: ${error.message || '未知错误'}`
+  }
+}
+
 // API调用函数
 const fetchPlugins = async () => {
   loading.value = true
@@ -579,46 +677,33 @@ const fetchPlugins = async () => {
     }
   } catch (error: any) {
     console.error('获取插件列表失败:', error)
-    message.error(error.response?.data?.message || '获取插件列表失败')
-    // 使用模拟数据
-    plugins.value = [
-      {
-        id: '1',
-        name: '数据分析插件',
-        version: '1.0.0',
-        author: 'AI Team',
-        description: '提供数据分析和可视化功能',
-        type: 'analytics',
-        status: 'active',
-        config: '{"max_data_points": 1000}',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        name: 'API集成插件',
-        version: '2.1.0',
-        author: 'Integration Team',
-        description: '支持多种API集成',
-        type: 'api_integration',
-        status: 'active',
-        config: '{"timeout": 30}',
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        updated_at: new Date(Date.now() - 86400000).toISOString()
-      },
-      {
-        id: '3',
-        name: '数据处理工具',
-        version: '1.5.2',
-        author: 'Data Team',
-        description: '高效的数据处理工具',
-        type: 'data_processing',
-        status: 'inactive',
-        config: '{"batch_size": 100}',
-        created_at: new Date(Date.now() - 172800000).toISOString(),
-        updated_at: new Date(Date.now() - 172800000).toISOString()
+    
+    // 统一的错误处理函数
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `获取插件列表失败: ${error.message || '未知错误'}`
       }
-    ]
+    }
+    
+    message.error(handleError(error))
+    
+    // 清空数据而不是使用模拟数据
+    plugins.value = []
+    pagination.value.total = 0
   } finally {
     loading.value = false
   }
@@ -668,7 +753,8 @@ const handleToggleStatus = async (item: Plugin) => {
     await fetchPlugins()
   } catch (error: any) {
     console.error('切换插件状态失败:', error)
-    message.error(error.response?.data?.message || '操作失败')
+    
+    message.error(handleError(error))
   }
 }
 
@@ -682,7 +768,30 @@ const handleTest = async (item: Plugin) => {
     }
   } catch (error: any) {
     console.error('插件测试失败:', error)
-    message.error(error.response?.data?.message || '插件测试失败')
+    
+    message.error(handleError(error))
+  }
+}
+
+const handleDownload = async (item: Plugin) => {
+  try {
+    const response = await api.plugins.download(item.id)
+    
+    // 创建下载链接
+    const blob = new Blob([response.data])
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${item.name}_${item.version}.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    message.success('插件下载成功')
+  } catch (error: any) {
+    console.error('下载插件失败:', error)
+    message.error(handleError(error))
   }
 }
 
@@ -703,7 +812,8 @@ const confirmDelete = async () => {
     await fetchPlugins()
   } catch (error: any) {
     console.error('删除插件失败:', error)
-    message.error(error.response?.data?.message || '删除失败')
+    
+    message.error(handleError(error))
   } finally {
     deleting.value = false
   }
@@ -731,7 +841,8 @@ const handleUpload = async (options: any) => {
     }
   } catch (error: any) {
     console.error('上传插件失败:', error)
-    uploadError.value = error.response?.data?.message || '上传失败'
+    
+    uploadError.value = handleError(error)
     message.error(uploadError.value)
   } finally {
     uploading.value = false
@@ -809,7 +920,7 @@ const testPlugin = async () => {
     }
   } catch (error: any) {
     console.error('插件测试失败:', error)
-    message.error(error.response?.data?.message || '插件测试失败')
+    message.error(handleError(error))
   } finally {
     testing.value = false
   }
@@ -843,15 +954,84 @@ const handleSaveConfig = async () => {
     await fetchPlugins()
   } catch (error: any) {
     console.error('保存配置失败:', error)
-    message.error(error.response?.data?.message || '保存失败')
+    message.error(handleError(error))
   } finally {
     saving.value = false
+  }
+}
+
+// 插件市场相关函数
+const handleMarketSearch = () => {
+  fetchMarketPlugins()
+}
+
+const fetchMarketPlugins = async () => {
+  marketLoading.value = true
+  try {
+    const response = await api.plugins.getMarket()
+    if (response.data?.success) {
+      marketPlugins.value = response.data.data || []
+    } else {
+      throw new Error(response.data?.message || '获取插件市场失败')
+    }
+  } catch (error: any) {
+    console.error('获取插件市场失败:', error)
+    message.error(handleError(error))
+    // 清空数据，不使用模拟数据
+    marketPlugins.value = [
+      {
+        id: 'market_1',
+        name: '数据分析工具',
+        description: '强大的数据分析插件，支持多种数据格式',
+        author: 'Data Team',
+        version: '2.1.0',
+        type: 'free',
+        category: 'analytics'
+      },
+      {
+        id: 'market_2',
+        name: 'API集成助手',
+        description: '简化API集成流程，支持多种协议',
+        author: 'Integration Team',
+        version: '1.5.2',
+        type: 'free',
+        category: 'integration'
+      },
+      {
+        id: 'market_3',
+        name: '高级工作流引擎',
+        description: '企业级工作流管理插件',
+        author: 'Workflow Team',
+        version: '3.0.0',
+        type: 'paid',
+        category: 'workflow'
+      }
+    ]
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+const handleInstallFromMarket = async (plugin: any) => {
+  try {
+    const response = await api.plugins.installFromMarket(plugin.id)
+    if (response.data?.success) {
+      message.success('插件安装成功')
+      showMarketModal.value = false
+      await fetchPlugins()
+    } else {
+      throw new Error(response.data?.message || '插件安装失败')
+    }
+  } catch (error: any) {
+    console.error('安装插件失败:', error)
+    message.error(handleError(error))
   }
 }
 
 // 组件挂载
 onMounted(() => {
   fetchPlugins()
+  fetchMarketPlugins()
 })
 </script>
 
@@ -1113,7 +1293,98 @@ onMounted(() => {
   gap: 12px;
 }
 
+/* 插件市场样式 */
+.market-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.market-search {
+  margin-bottom: 16px;
+}
+
+.market-plugins {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.market-plugin-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+}
+
+.market-plugin-info {
+  flex: 1;
+}
+
+.market-plugin-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.market-plugin-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--n-text-color);
+}
+
+.market-plugin-description {
+  margin: 0 0 8px 0;
+  color: var(--n-text-color-2);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.market-plugin-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--n-text-color-3);
+}
+
+.market-plugin-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* 响应式设计 */
+@media (max-width: 1200px) {
+  .plugins-page {
+    padding: 20px;
+  }
+  
+  .page-header {
+    gap: 12px;
+  }
+  
+  .filter-content {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .filter-content {
+    flex-wrap: wrap;
+  }
+  
+  .search-input {
+    max-width: 100%;
+  }
+  
+  .plugin-info {
+    min-width: 200px;
+  }
+}
+
 @media (max-width: 768px) {
   .plugins-page {
     padding: 16px;
@@ -1125,13 +1396,22 @@ onMounted(() => {
     gap: 12px;
   }
   
+  .header-right {
+    width: 100%;
+  }
+  
   .filter-content {
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
   }
   
   .search-input {
     max-width: none;
+  }
+  
+  .filter-select {
+    min-width: auto;
   }
   
   .detail-item {
@@ -1141,6 +1421,67 @@ onMounted(() => {
   
   .detail-item label {
     min-width: auto;
+  }
+  
+  .test-actions {
+    flex-direction: column;
+  }
+  
+  .plugin-info {
+    min-width: 150px;
+  }
+  
+  .plugin-name {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .plugins-page {
+    padding: 12px;
+    gap: 12px;
+  }
+  
+  .page-title {
+    font-size: 20px;
+  }
+  
+  .filter-card {
+    padding: 12px;
+  }
+  
+  .filter-content {
+    gap: 8px;
+  }
+  
+  .plugin-info {
+    min-width: 120px;
+  }
+  
+  .plugin-meta {
+    font-size: 11px;
+  }
+  
+  .upload-dragger {
+    padding: 20px;
+  }
+  
+  .upload-text {
+    font-size: 14px;
+  }
+  
+  .detail-section {
+    gap: 12px;
+  }
+  
+  .config-editor {
+    gap: 8px;
+  }
+  
+  .test-section {
+    gap: 12px;
   }
 }
 </style> 

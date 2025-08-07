@@ -15,11 +15,15 @@ import tempfile
 class PluginExecutor:
     def __init__(self):
         self.db = None
-        self.plugin_dir = os.path.join(os.getcwd(), 'backend', 'plugins')
+        current_dir = os.getcwd()
+        if current_dir is None:
+            current_dir = '.'
+        self.plugin_dir = os.path.join(current_dir, 'backend', 'plugins')
         os.makedirs(self.plugin_dir, exist_ok=True)
     
     def set_db(self, db):
-        self.db = db
+        if db is not None:
+            self.db = db
     
     def execute_plugin(self, plugin: Dict, input_data: Dict[str, Any], user_id: str = None) -> Dict[str, Any]:
         """执行插件"""
@@ -51,6 +55,7 @@ class PluginExecutor:
                 }
                 
         except Exception as e:
+            print(f"❌ 插件执行失败: {str(e)}")
             return {
                 'success': False,
                 'error': f'执行插件失败: {str(e)}'
@@ -91,6 +96,7 @@ class PluginExecutor:
                 }
                 
         except Exception as e:
+            print(f"❌ 插件测试失败: {str(e)}")
             return {
                 'success': False,
                 'error': f'插件测试失败: {str(e)}'

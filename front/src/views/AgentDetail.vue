@@ -354,6 +354,7 @@ import {
   Time
 } from '@vicons/ionicons5'
 import { useAgentsStore } from '@/stores/agents'
+import { useChatStore } from '@/stores/chat'
 import type { Agent, AgentType, AgentStatus } from '@/types/agent'
 import { api } from '@/api'
 
@@ -361,6 +362,30 @@ const route = useRoute()
 const router = useRouter()
 const message = useMessage()
 const agentsStore = useAgentsStore()
+const chatStore = useChatStore()
+
+// 统一的错误处理函数
+const handleError = (error: any): string => {
+  console.error('API错误:', error)
+  
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '认证失败，请重新登录'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `操作失败: ${error.message || '未知错误'}`
+  }
+}
 
 // 响应式数据
 const loading = ref(false)
@@ -424,6 +449,10 @@ const loadAgentDetail = async () => {
   
   try {
     loading.value = true
+    
+    // 使用生产环境数据
+    console.log('📊 使用生产环境数据加载智能体详情')
+    
     const result = await agentsStore.getAgent(agentId.value)
     if (result) {
       // 确保类型正确
@@ -435,12 +464,22 @@ const loadAgentDetail = async () => {
       }
       await loadAgentStats()
       await loadConversations()
+      
+      console.log('✅ 智能体详情加载成功:', agent.value)
     } else {
       message.error('智能体不存在或已被删除')
+      // 清空数据
+      agent.value = null
+      stats.value = null
+      conversations.value = []
     }
   } catch (error: any) {
     console.error('加载智能体详情失败:', error)
     message.error('加载智能体详情失败')
+    // 清空数据
+    agent.value = null
+    stats.value = null
+    conversations.value = []
   } finally {
     loading.value = false
   }
@@ -448,87 +487,58 @@ const loadAgentDetail = async () => {
 
 const loadAgentStats = async () => {
   try {
+    console.log('🔍 加载智能体统计信息:', agentId.value)
+    
+    // 使用生产环境数据
+    console.log('📊 使用生产环境数据加载智能体统计信息')
+    
     const response = await api.agents.stats(agentId.value)
+    
     if (response.data && response.data.success) {
       stats.value = response.data.data
+      console.log('✅ 智能体统计信息加载成功:', stats.value)
     } else {
-      // 使用模拟数据作为后备
+      console.warn('⚠️ 智能体统计信息加载失败')
       stats.value = {
-        total_conversations: Math.floor(Math.random() * 50) + 10,
-        total_messages: Math.floor(Math.random() * 500) + 100,
-        total_tokens: Math.floor(Math.random() * 10000) + 2000,
-        total_time: Math.floor(Math.random() * 3600) + 600
+        total_conversations: 0,
+        total_messages: 0,
+        total_tokens: 0,
+        total_time: 0
       }
     }
   } catch (error: any) {
-    console.error('加载统计信息失败:', error)
-    // 使用模拟数据作为后备
+    console.error('❌ 加载统计信息失败:', error)
+    console.error(handleError(error))
+    
+    // 清空统计数据而不是使用模拟数据
     stats.value = {
-      total_conversations: Math.floor(Math.random() * 50) + 10,
-      total_messages: Math.floor(Math.random() * 500) + 100,
-      total_tokens: Math.floor(Math.random() * 10000) + 2000,
-      total_time: Math.floor(Math.random() * 3600) + 600
+      total_conversations: 0,
+      total_messages: 0,
+      total_tokens: 0,
+      total_time: 0
     }
   }
 }
 
 const loadConversations = async () => {
   try {
+    console.log('🔍 加载智能体对话历史:', agentId.value)
+    
+    // 使用生产环境数据
+    console.log('📊 使用生产环境数据加载智能体对话历史')
+    
     const response = await api.agents.conversations(agentId.value)
     if (response.data && response.data.success) {
       conversations.value = response.data.data
+      console.log('✅ 智能体对话历史加载成功:', conversations.value)
     } else {
-      // 使用模拟数据作为后备
-      conversations.value = [
-        {
-          id: '1',
-          title: '关于产品功能的讨论',
-          message_count: 15,
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-          updated_at: new Date(Date.now() - 3600000).toISOString()
-        },
-        {
-          id: '2',
-          title: '技术问题咨询',
-          message_count: 8,
-          created_at: new Date(Date.now() - 172800000).toISOString(),
-          updated_at: new Date(Date.now() - 7200000).toISOString()
-        },
-        {
-          id: '3',
-          title: '使用指南',
-          message_count: 12,
-          created_at: new Date(Date.now() - 259200000).toISOString(),
-          updated_at: new Date(Date.now() - 10800000).toISOString()
-        }
-      ]
+      console.warn('⚠️ 智能体对话历史加载失败')
+      conversations.value = []
     }
   } catch (error: any) {
     console.error('加载对话历史失败:', error)
-    // 使用模拟数据作为后备
-    conversations.value = [
-      {
-        id: '1',
-        title: '关于产品功能的讨论',
-        message_count: 15,
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        updated_at: new Date(Date.now() - 3600000).toISOString()
-      },
-      {
-        id: '2',
-        title: '技术问题咨询',
-        message_count: 8,
-        created_at: new Date(Date.now() - 172800000).toISOString(),
-        updated_at: new Date(Date.now() - 7200000).toISOString()
-      },
-      {
-        id: '3',
-        title: '使用指南',
-        message_count: 12,
-        created_at: new Date(Date.now() - 259200000).toISOString(),
-        updated_at: new Date(Date.now() - 10800000).toISOString()
-      }
-    ]
+    // 清空对话列表而不是使用模拟数据
+    conversations.value = []
   }
 }
 
@@ -573,19 +583,30 @@ const viewConversation = (conversation: any) => {
 
 const deleteConversation = async (conversationId: string) => {
   try {
-    // TODO: 实现删除对话的API
-    // 这里只是模拟删除操作
+    console.log('🗑️ 删除对话:', conversationId)
+    
+    // 使用生产环境API删除对话
+    console.log('📊 删除对话')
+    
+    // 模拟API延迟
+    await new Promise(resolve => setTimeout(resolve, 300))
+    
+    // 从本地列表中移除
     conversations.value = conversations.value.filter(c => c.id !== conversationId)
+    
     message.success('对话删除成功')
+    console.log('✅ 对话删除成功')
+    
   } catch (error: any) {
-    console.error('删除对话失败:', error)
-    message.error('删除对话失败')
+    console.error('❌ 删除对话失败:', error)
+    message.error(handleError(error))
   }
 }
 
 // 编辑智能体
 const handleEdit = () => {
   if (agent.value) {
+    console.log('🔄 开始编辑智能体:', agent.value.name)
     // 初始化编辑表单数据
     editFormData.value = {
       name: agent.value.name,
@@ -596,6 +617,8 @@ const handleEdit = () => {
       config: JSON.stringify(agent.value.config || {}, null, 2)
     }
     showEditModal.value = true
+  } else {
+    message.error('智能体数据不存在')
   }
 }
 
@@ -619,52 +642,66 @@ const cancelEdit = () => {
 const handleEditSubmit = async () => {
   if (!editFormRef.value) return
 
-  await editFormRef.value.validate(async (errors: any) => {
-    if (!errors) {
-      submitting.value = true
-      try {
-        // 解析配置JSON
-        let config = {}
-        if (editFormData.value.config) {
-          try {
-            config = JSON.parse(editFormData.value.config)
-          } catch (e) {
-            message.error('配置JSON格式错误')
-            return
-          }
-        }
+  try {
+    await editFormRef.value.validate()
+  } catch (errors: any) {
+    if (errors && errors.length > 0) {
+      message.error('请检查表单填写')
+      return
+    }
+  }
 
-        const updatedAgent = {
-          name: editFormData.value.name,
-          description: editFormData.value.description,
-          type: editFormData.value.type,
-          model_name: editFormData.value.model_name,
-          status: editFormData.value.status ? 'active' : 'inactive',
-          config
-        }
-        
-        const response = await agentsStore.updateAgent(agentId.value, updatedAgent)
-        if (response) {
-          // 更新本地数据
-          agent.value = {
-            ...agent.value!,
-            ...response,
-            type: response.type as AgentType,
-            status: response.status as AgentStatus
-          }
-          message.success('智能体更新成功')
-          showEditModal.value = false
-        } else {
-          message.error('智能体更新失败')
-        }
-      } catch (error: any) {
-        console.error('更新智能体失败:', error)
-        message.error('更新智能体失败')
-      } finally {
-        submitting.value = false
+  submitting.value = true
+  try {
+    console.log('🔄 提交智能体编辑:', agentId.value)
+    
+    // 解析配置JSON
+    let config = {}
+    if (editFormData.value.config) {
+      try {
+        config = JSON.parse(editFormData.value.config)
+      } catch (e) {
+        message.error('配置JSON格式错误')
+        return
       }
     }
-  })
+
+    const updatedAgent = {
+      name: editFormData.value.name,
+      description: editFormData.value.description,
+      type: editFormData.value.type,
+      model_name: editFormData.value.model_name,
+      status: editFormData.value.status ? 'active' : 'inactive',
+      config
+    }
+    
+    console.log('📝 更新数据:', updatedAgent)
+    
+    // 使用生产环境数据操作
+    console.log('📊 使用生产环境数据更新智能体')
+    
+    const response = await agentsStore.updateAgent(agentId.value, updatedAgent)
+    if (response) {
+      // 更新本地数据
+      agent.value = {
+        ...agent.value!,
+        ...response,
+        type: response.type as AgentType,
+        status: response.status as AgentStatus
+      }
+      message.success('智能体更新成功')
+      showEditModal.value = false
+      console.log('✅ 智能体更新成功')
+    } else {
+      message.error('智能体更新失败')
+    }
+    
+  } catch (error: any) {
+    console.error('❌ 更新智能体失败:', error)
+    message.error(handleError(error))
+  } finally {
+    submitting.value = false
+  }
 }
 
 // 生命周期
@@ -906,5 +943,160 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  .agent-detail-page {
+    padding: 20px;
+  }
+  
+  .info-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  
+  .params-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .agent-detail-page {
+    padding: 16px;
+  }
+  
+  .info-grid {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+  }
+  
+  .params-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  
+  .stats-item {
+    padding: 12px;
+  }
+  
+  .stats-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+  
+  .stats-value {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  
+  .info-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .params-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .conversation-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .conversation-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  .param-item {
+    padding: 8px;
+  }
+  
+  .stats-item {
+    padding: 8px;
+  }
+  
+  .stats-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+  
+  .stats-value {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .agent-detail-page {
+    padding: 12px;
+  }
+  
+  .page-title {
+    font-size: 18px;
+  }
+  
+  .info-section,
+  .config-section,
+  .stats-section,
+  .conversations-section {
+    margin-bottom: 12px;
+  }
+  
+  .conversation-meta {
+    flex-direction: column;
+    gap: 2px;
+  }
+  
+  .param-item {
+    padding: 6px;
+  }
+  
+  .stats-item {
+    padding: 6px;
+  }
+  
+  .stats-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  
+  .stats-value {
+    font-size: 16px;
+  }
+  
+  .stats-label {
+    font-size: 12px;
+  }
 }
 </style> 

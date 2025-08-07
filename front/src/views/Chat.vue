@@ -525,20 +525,32 @@ const validateFileUpload = (file: File) => {
   const maxSize = config.upload?.maxSize || 10 * 1024 * 1024 // 默认10MB
   const allowedTypes = config.upload?.allowedTypes || ['.txt', '.md', '.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.gif']
   
+  if (!file || !file.name) {
+    message.error('无效的文件')
+    return false
+  }
+  
   if (file.size > maxSize) {
-    message.error(`文件 ${file.name} 过大，最大支持 ${maxSize / 1024 / 1024}MB`)
+    message.error(`文件 ${file.name} 过大，最大支持 ${(maxSize / 1024 / 1024).toFixed(1)}MB`)
     return false
   }
   
   const ext = file.name.split('.').pop()?.toLowerCase()
   if (ext && !allowedTypes.includes('.' + ext)) {
-    message.error(`文件类型不支持: ${file.name}`)
+    message.error(`文件类型不支持: ${file.name}，支持的类型: ${allowedTypes.join(', ')}`)
     return false
   }
   
   // 检查文件名长度
   if (file.name.length > 100) {
-    message.error(`文件名过长: ${file.name}`)
+    message.error(`文件名过长: ${file.name}，最大长度100字符`)
+    return false
+  }
+  
+  // 检查文件名是否包含特殊字符
+  const invalidChars = /[<>:"/\\|?*]/
+  if (invalidChars.test(file.name)) {
+    message.error(`文件名包含无效字符: ${file.name}`)
     return false
   }
   
@@ -548,23 +560,51 @@ const validateFileUpload = (file: File) => {
 const validateImageUpload = (file: File) => {
   const maxSize = config.upload?.maxSize || 10 * 1024 * 1024 // 默认10MB
   
+  if (!file || !file.name) {
+    message.error('无效的文件')
+    return false
+  }
+  
   if (!file.type.startsWith('image/')) {
     message.error(`文件 ${file.name} 不是有效的图片格式`)
     return false
   }
   
   if (file.size > maxSize) {
-    message.error(`图片 ${file.name} 过大，最大支持 ${maxSize / 1024 / 1024}MB`)
+    message.error(`图片 ${file.name} 过大，最大支持 ${(maxSize / 1024 / 1024).toFixed(1)}MB`)
     return false
   }
   
   // 检查文件名长度
   if (file.name.length > 100) {
-    message.error(`文件名过长: ${file.name}`)
+    message.error(`文件名过长: ${file.name}，最大长度100字符`)
     return false
   }
   
-  return true
+  // 检查文件名是否包含特殊字符
+  const invalidChars = /[<>:"/\\|?*]/
+  if (invalidChars.test(file.name)) {
+    message.error(`文件名包含无效字符: ${file.name}`)
+    return false
+  }
+  
+  // 检查图片尺寸（可选）
+  return new Promise<boolean>((resolve) => {
+    const img = new window.Image()
+    img.onload = () => {
+      if (img.width > 4096 || img.height > 4096) {
+        message.error(`图片 ${file.name} 尺寸过大，最大支持4096x4096像素`)
+        resolve(false)
+      } else {
+        resolve(true)
+      }
+    }
+    img.onerror = () => {
+      message.error(`图片 ${file.name} 格式无效或已损坏`)
+      resolve(false)
+    }
+    img.src = URL.createObjectURL(file)
+  })
 }
 
 const handleError = (error: any, operation: string) => {
@@ -789,11 +829,18 @@ const triggerImageUpload = () => {
   imageInputRef.value?.click()
 }
 
-const handleImageUpload = (event: Event) => {
+const handleImageUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement
   if (target.files) {
     const files = Array.from(target.files)
-    const validFiles = files.filter(validateImageUpload)
+    const validFiles: File[] = []
+    
+    for (const file of files) {
+      const isValid = await validateImageUpload(file)
+      if (isValid) {
+        validFiles.push(file)
+      }
+    }
     
     if (validFiles.length !== files.length) {
       message.warning(`有 ${files.length - validFiles.length} 个图片不符合要求`)
@@ -1754,6 +1801,10 @@ watch(() => chatStore.conversations, (newConversations) => {
   .conversation-sidebar {
     width: 280px;
   }
+  
+  .chat-messages {
+    padding: 20px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1785,6 +1836,16 @@ watch(() => chatStore.conversations, (newConversations) => {
   .chat-input {
     padding: 16px;
   }
+  
+  .input-toolbar {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .toolbar-left,
+  .toolbar-right {
+    justify-content: center;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1806,6 +1867,24 @@ watch(() => chatStore.conversations, (newConversations) => {
   
   .conversation-sidebar {
     height: 150px;
+  }
+  
+  .input-toolbar {
+    padding: 8px 12px;
+  }
+  
+  .tool-item {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .tool-label {
+    font-size: 11px;
+  }
+  
+  .upload-btn {
+    font-size: 11px;
+    padding: 4px 8px;
   }
 }
 

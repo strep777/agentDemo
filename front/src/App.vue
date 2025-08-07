@@ -6,7 +6,7 @@
           <router-view v-slot="{ Component, route }">
             <component 
               :is="Component" 
-              v-if="route.name === 'Login'"
+              v-if="route.name === 'Login' || route.name === 'Register'"
             />
             <MainLayout v-else>
               <component :is="Component" />

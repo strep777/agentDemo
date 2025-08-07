@@ -29,6 +29,8 @@ export const parseMarkdown = (text: string): string => {
 }
 
 export const extractThinkingContent = (content: string): { thinking: string; reply: string } => {
+  if (!content) return { thinking: '', reply: '' }
+  
   // 支持多种思考内容格式
   const thinkingPatterns = [
     /```thinking\n([\s\S]*?)\n```/i,
@@ -36,7 +38,9 @@ export const extractThinkingContent = (content: string): { thinking: string; rep
     /```thinking\s*\n([\s\S]*?)\n```/i,
     /```思考\s*\n([\s\S]*?)\n```/i,
     /<thinking>([\s\S]*?)<\/thinking>/i,
-    /<思考>([\s\S]*?)<\/思考>/i
+    /<思考>([\s\S]*?)<\/思考>/i,
+    /<thinking>([\s\S]*?)<\/thinking>/gi,
+    /<思考>([\s\S]*?)<\/思考>/gi
   ]
   
   for (const pattern of thinkingPatterns) {

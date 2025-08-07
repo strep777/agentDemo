@@ -216,8 +216,8 @@ import {
   Refresh,
   Settings,
   Notifications,
-  Security,
-  Database,
+  ShieldCheckmark,
+  Server,
   Cloud,
   Globe
 } from '@vicons/ionicons5'
@@ -226,7 +226,35 @@ import {
   NSelect, NCheckbox, NSpace 
 } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
+import { useChatStore } from '@/stores/chat'
+import { useMessage, useDialog } from 'naive-ui'
 import { api } from '@/api'
+
+const authStore = useAuthStore()
+const chatStore = useChatStore()
+const message = useMessage()
+const dialog = useDialog()
+
+// 统一的错误处理函数
+const handleError = (error: any, operation: string = '操作') => {
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '认证失败，请重新登录'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `${operation}失败: ${error.message || '未知错误'}`
+  }
+}
 
 // 响应式数据
 const activeTab = ref('profile')
@@ -277,7 +305,7 @@ const profileRules = {
   ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+    { type: 'email' as const, message: '请输入正确的邮箱格式', trigger: 'blur' }
   ]
 }
 
@@ -329,17 +357,23 @@ const updateProfile = async () => {
     await profileFormRef.value?.validate()
     loading.value = true
     
-    const success = await authStore.updateProfile({
+    // 使用生产环境数据更新个人信息
+    console.log('📊 使用生产环境数据更新个人信息')
+    
+    const response = await api.auth.updateProfile({
       username: profileForm.username,
       email: profileForm.email,
       bio: profileForm.bio
     })
     
-    if (success) {
+    if (response.data && response.data.success) {
       message.success('个人信息更新成功')
+    } else {
+      throw new Error('更新失败')
     }
-  } catch (error: any) {
-    message.error(error.response?.data?.error || '更新失败')
+    } catch (error: any) {
+    console.error('更新个人信息失败:', error)
+    message.error(handleError(error, '更新个人信息'))
   } finally {
     loading.value = false
   }
@@ -351,7 +385,7 @@ const changePassword = async () => {
     await passwordFormRef.value?.validate()
     loading.value = true
     
-    const response = await api.post('/auth/change-password', {
+    const response = await api.auth.changePassword({
       old_password: passwordForm.oldPassword,
       new_password: passwordForm.newPassword
     })
@@ -362,9 +396,12 @@ const changePassword = async () => {
       passwordForm.oldPassword = ''
       passwordForm.newPassword = ''
       passwordForm.confirmPassword = ''
+    } else {
+      throw new Error('密码修改失败')
     }
   } catch (error: any) {
-    message.error(error.response?.data?.error || '密码修改失败')
+    console.error('密码修改失败:', error)
+    message.error(handleError(error, '密码修改'))
   } finally {
     loading.value = false
   }
@@ -375,13 +412,14 @@ const saveSystemConfig = async () => {
   try {
     loading.value = true
     
-    const response = await api.post('/settings/system', systemForm)
+    const response = await api.settings.system.update(systemForm)
     
     if (response.data.success) {
       message.success('系统配置保存成功')
     }
   } catch (error: any) {
-    message.error(error.response?.data?.error || '保存配置失败')
+    console.error('保存系统配置失败:', error)
+    message.error(handleError(error, '保存系统配置'))
   } finally {
     loading.value = false
   }
@@ -392,13 +430,14 @@ const saveNotificationSettings = async () => {
   try {
     loading.value = true
     
-    const response = await api.post('/settings/notifications', notificationSettings)
+    const response = await api.settings.notifications.update(notificationSettings)
     
     if (response.data.success) {
       message.success('通知设置保存成功')
     }
   } catch (error: any) {
-    message.error(error.response?.data?.error || '保存通知设置失败')
+    console.error('保存通知设置失败:', error)
+    message.error(handleError(error, '保存通知设置'))
   } finally {
     loading.value = false
   }
@@ -409,12 +448,11 @@ const exportData = async (type: string) => {
   try {
     loading.value = true
     
-    const response = await api.get(`/settings/export/${type}`, {
-      responseType: 'blob'
-    })
+    const response = await api.settings.export(type)
     
     // 创建下载链接
-    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const blob = new Blob([response.data], { type: 'application/json' })
+    const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
     link.setAttribute('download', `${type}_export_${new Date().toISOString().split('T')[0]}.json`)
@@ -425,7 +463,8 @@ const exportData = async (type: string) => {
     
     message.success('数据导出成功')
   } catch (error: any) {
-    message.error('数据导出失败')
+    console.error('数据导出失败:', error)
+    message.error(handleError(error, '数据导出'))
   } finally {
     loading.value = false
   }
@@ -442,13 +481,18 @@ const clearData = async (type: string) => {
       try {
         loading.value = true
         
-        const response = await api.delete(`/settings/clear/${type}`)
-        
-        if (response.data.success) {
-          message.success('数据清理成功')
+        // 清理对话数据
+        if (type === 'conversations') {
+          await chatStore.clearAllConversations()
+        } else {
+          // 使用API清理其他类型数据
+          await api.settings.clear(type)
         }
+        
+        message.success('数据清理成功')
       } catch (error: any) {
-        message.error(error.response?.data?.error || '数据清理失败')
+        console.error('数据清理失败:', error)
+        message.error(handleError(error, '数据清理'))
       } finally {
         loading.value = false
       }
@@ -467,13 +511,14 @@ const clearAllData = async () => {
       try {
         loading.value = true
         
-        const response = await api.delete('/settings/clear/all')
+        // 清理所有相关数据
+        await chatStore.clearAllConversations()
+        await api.settings.clearAll()
         
-        if (response.data.success) {
-          message.success('所有数据清理成功')
-        }
+        message.success('所有数据清理成功')
       } catch (error: any) {
-        message.error(error.response?.data?.error || '数据清理失败')
+        console.error('清理所有数据失败:', error)
+        message.error(handleError(error, '清理所有数据'))
       } finally {
         loading.value = false
       }
@@ -484,46 +529,51 @@ const clearAllData = async () => {
 // 加载用户信息
 const loadUserInfo = async () => {
   try {
-    const response = await api.user.getProfile()
+    const response = await api.auth.profile()
     if (response.data.success) {
       profileForm.username = response.data.data.username || ''
       profileForm.email = response.data.data.email || ''
       profileForm.bio = response.data.data.bio || ''
     }
-  } catch (error) {
-    message.error('加载用户信息失败')
+  } catch (error: any) {
+    console.error('加载用户信息失败:', error)
+    message.error(handleError(error, '加载用户信息'))
   }
 }
 
 // 加载系统配置
 const loadSystemConfig = async () => {
   try {
-    const response = await api.system.getConfig()
+    const response = await api.settings.system.get()
     if (response.data.success) {
-      systemForm.apiBaseUrl = response.data.data.apiBaseUrl || 'http://localhost:5000/api'
-      systemForm.ollamaUrl = response.data.data.ollamaUrl || 'http://localhost:11434'
-      systemForm.defaultModel = response.data.data.defaultModel || ''
-      systemForm.theme = response.data.data.theme || 'light'
-      systemForm.language = response.data.data.language || 'zh-CN'
+      const config = response.data.data
+      systemForm.apiBaseUrl = config.apiBaseUrl || 'http://localhost:5000/api'
+      systemForm.ollamaUrl = config.ollamaUrl || 'http://localhost:11434'
+      systemForm.defaultModel = config.defaultModel || ''
+      systemForm.theme = config.theme || 'light'
+      systemForm.language = config.language || 'zh-CN'
     }
-  } catch (error) {
-    message.error('加载系统配置失败')
+  } catch (error: any) {
+    console.error('加载系统配置失败:', error)
+    message.error(handleError(error, '加载系统配置'))
   }
 }
 
 // 加载通知设置
 const loadNotificationSettings = async () => {
   try {
-    const response = await api.user.getNotificationSettings()
+    const response = await api.settings.notifications.get()
     if (response.data.success) {
-      notificationSettings.emailEnabled = response.data.data.emailEnabled || false
-      notificationSettings.emailAddress = response.data.data.emailAddress || ''
-      notificationSettings.systemNotifications = response.data.data.systemNotifications || true
-      notificationSettings.trainingComplete = response.data.data.trainingComplete || true
-      notificationSettings.workflowComplete = response.data.data.workflowComplete || true
+      const config = response.data.data
+      notificationSettings.emailEnabled = config.emailEnabled || false
+      notificationSettings.emailAddress = config.emailAddress || ''
+      notificationSettings.systemNotifications = config.systemNotifications || true
+      notificationSettings.trainingComplete = config.trainingComplete || true
+      notificationSettings.workflowComplete = config.workflowComplete || true
     }
-  } catch (error) {
-    message.error('加载通知设置失败')
+  } catch (error: any) {
+    console.error('加载通知设置失败:', error)
+    message.error(handleError(error, '加载通知设置'))
   }
 }
 
@@ -537,5 +587,27 @@ onMounted(() => {
 <style scoped>
 .settings-page {
   padding: 20px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 16px;
+  }
+  
+  :deep(.n-form-item-label) {
+    min-width: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-page {
+    padding: 12px;
+  }
+  
+  :deep(.n-form-item-label) {
+    min-width: 60px;
+    font-size: 14px;
+  }
 }
 </style> 

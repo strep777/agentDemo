@@ -197,10 +197,33 @@ import {
   PauseOutline
 } from '@vicons/ionicons5'
 import { api } from '@/api'
-import type { Agent, AgentType } from '@/types/agent'
+import type { Agent, AgentType, AgentStatus } from '@/types/agent'
 
 const router = useRouter()
 const message = useMessage()
+
+// 统一的错误处理函数
+const handleError = (error: any): string => {
+  console.error('API错误:', error)
+  
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时，请检查后端服务是否正常运行'
+  } else if (error.code === 'ERR_NETWORK') {
+    return '网络连接失败，请检查网络连接'
+  } else if (error.response?.status === 500) {
+    return '服务器内部错误，请稍后重试'
+  } else if (error.response?.status === 404) {
+    return 'API端点不存在，请检查后端配置'
+  } else if (error.response?.status === 401) {
+    return '认证失败，请重新登录'
+  } else if (error.response?.status === 403) {
+    return '权限不足，无法访问此资源'
+  } else if (error.response?.status === 422) {
+    return '请求参数错误，请检查输入数据'
+  } else {
+    return `操作失败: ${error.message || '未知错误'}`
+  }
+}
 
 // 响应式数据
 const loading = ref(false)
@@ -241,6 +264,11 @@ const rules = {
     required: true,
     message: '请选择模型',
     trigger: 'change'
+  },
+  description: {
+    required: false,
+    message: '请输入智能体描述',
+    trigger: 'blur'
   }
 }
 
@@ -381,7 +409,7 @@ const columns = [
 
 // 筛选后的数据
 const filteredAgents = computed(() => {
-  // 由于现在使用服务器端筛选，直接返回agents数据
+  // 使用服务器端筛选，直接返回agents数据
   return agents.value
 })
 
@@ -410,6 +438,10 @@ const fetchAgents = async () => {
     }
     
     console.log('🔍 获取智能体列表，参数:', params)
+    
+    // 使用生产环境数据
+    console.log('📊 使用生产环境数据加载智能体列表')
+    
     const response = await api.agents.list(params)
     console.log('🔍 Agents API响应:', response)
     
@@ -437,61 +469,17 @@ const fetchAgents = async () => {
         pagination.value.total = responseData.total || agents.value.length
       }
       
-      console.log('✅ 智能体数据:', agents.value)
+      console.log('✅ 智能体数据加载成功:', agents.value)
     } else {
-      throw new Error('API响应格式错误')
+      throw new Error(response.data?.message || 'API响应格式错误')
     }
   } catch (error: any) {
     console.error('获取智能体列表失败:', error)
+    message.error(handleError(error))
     
-    // 根据错误类型显示不同的错误信息
-    if (error.code === 'ECONNABORTED') {
-      message.error('请求超时，请检查后端服务是否正常运行')
-    } else if (error.code === 'ERR_NETWORK') {
-      message.error('网络连接失败，请检查网络连接')
-    } else if (error.response?.status === 500) {
-      message.error('服务器内部错误，请稍后重试')
-    } else if (error.response?.status === 404) {
-      message.error('API端点不存在，请检查后端配置')
-    } else if (error.response?.status === 401) {
-      message.error('认证失败，请重新登录')
-    } else {
-      message.error(`获取智能体列表失败: ${error.message || '未知错误'}`)
-    }
-    
-    // 使用模拟数据
-    agents.value = [
-      {
-        id: '1',
-        name: '客服助手',
-        description: '专业的客户服务智能体',
-        type: 'chat',
-        model_name: 'gpt-3.5-turbo',
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        name: '数据分析师',
-        description: '数据分析专家智能体',
-        type: 'specialist',
-        model_name: 'gpt-4',
-        status: 'active',
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        updated_at: new Date(Date.now() - 86400000).toISOString()
-      },
-      {
-        id: '3',
-        name: '任务执行器',
-        description: '自动化任务执行智能体',
-        type: 'assistant',
-        model_name: 'claude-3',
-        status: 'inactive',
-        created_at: new Date(Date.now() - 172800000).toISOString(),
-        updated_at: new Date(Date.now() - 172800000).toISOString()
-      }
-    ]
+    // 清空数据而不是使用模拟数据
+    agents.value = []
+    pagination.value.total = 0
   } finally {
     loading.value = false
   }
@@ -499,17 +487,20 @@ const fetchAgents = async () => {
 
 // 处理页面变化
 const handlePageChange = (page: number) => {
-  // 这个方法已经不需要了，因为分页配置的onChange已经处理了
-  console.log('页面变化:', page)
+  console.log('📄 页面变化:', page)
+  pagination.value.page = page
+  fetchAgents()
 }
 
 // 查看智能体详情
 const handleView = (agent: Agent) => {
+  console.log('👁️ 查看智能体详情:', agent.name)
   router.push(`/agents/${agent.id}`)
 }
 
 // 编辑智能体
 const handleEdit = (agent: Agent) => {
+  console.log('🔄 开始编辑智能体:', agent.name)
   currentAgent.value = agent
   formData.value = { 
     name: agent.name,
@@ -524,6 +515,7 @@ const handleEdit = (agent: Agent) => {
 
 // 取消编辑
 const cancelEdit = () => {
+  console.log('❌ 取消编辑智能体')
   showCreateModal.value = false
   currentAgent.value = null
   formData.value = {
@@ -541,22 +533,29 @@ const cancelEdit = () => {
 // 删除智能体
 const handleDelete = async (agent: Agent) => {
   try {
+    console.log('🗑️ 删除智能体:', agent.name)
+    
+    // 使用生产环境数据操作
+    console.log('📊 使用生产环境数据删除智能体')
+    
     const response = await api.agents.delete(agent.id)
     if (response.data && response.data.success) {
       message.success('删除成功')
+      console.log('✅ 智能体删除成功')
       await fetchAgents()
     } else {
       throw new Error('删除失败')
     }
   } catch (error: any) {
-    console.error('删除智能体失败:', error)
-    message.error('删除失败')
+    console.error('❌ 删除智能体失败:', error)
+    message.error(handleError(error))
   }
 }
 
 // 确认删除
 const confirmDelete = async () => {
   if (agentToDelete.value) {
+    console.log('🗑️ 确认删除智能体:', agentToDelete.value.name)
     await handleDelete(agentToDelete.value)
     agentToDelete.value = null
   }
@@ -566,25 +565,40 @@ const confirmDelete = async () => {
 const handleToggleStatus = async (agent: Agent) => {
   try {
     const newStatus = agent.status === 'active' ? 'inactive' : 'active'
+    console.log(`🔄 切换智能体状态: ${agent.name} ${agent.status} -> ${newStatus}`)
+    
+    // 使用生产环境数据操作
+    console.log('📊 使用生产环境数据切换智能体状态')
+    
     const response = await api.agents.update(agent.id, {
-      ...agent,
       status: newStatus
     })
+    
     if (response.data && response.data.success) {
-      message.success(agent.status === 'active' ? '禁用成功' : '启用成功')
-      await fetchAgents()
+      message.success(newStatus === 'active' ? '启用成功' : '禁用成功')
+      // 立即更新本地状态
+      const agentIndex = agents.value.findIndex(a => a.id === agent.id)
+      if (agentIndex !== -1) {
+        agents.value[agentIndex].status = newStatus
+      }
+      console.log('✅ 智能体状态切换成功')
     } else {
       throw new Error('状态更新失败')
     }
   } catch (error: any) {
     console.error('切换状态失败:', error)
-    message.error('切换状态失败')
+    message.error(handleError(error))
   }
 }
 
 // 复制智能体
 const handleCopy = async (agent: Agent) => {
   try {
+    console.log('📋 复制智能体:', agent.name)
+    
+    // 使用生产环境数据操作
+    console.log('📊 使用生产环境数据复制智能体')
+    
     const copyData = {
       name: `${agent.name} (副本)`,
       description: agent.description,
@@ -594,16 +608,19 @@ const handleCopy = async (agent: Agent) => {
       config: agent.config
     }
     
+    console.log('📝 复制数据:', copyData)
+    
     const response = await api.agents.create(copyData)
     if (response.data && response.data.success) {
       message.success('复制成功')
+      console.log('✅ 智能体复制成功')
       await fetchAgents()
     } else {
       throw new Error('复制失败')
     }
   } catch (error: any) {
-    console.error('复制智能体失败:', error)
-    message.error('复制失败')
+    console.error('❌ 复制智能体失败:', error)
+    message.error(handleError(error))
   }
 }
 
@@ -612,6 +629,8 @@ const handleSubmit = async () => {
   try {
     await formRef.value?.validate()
     submitting.value = true
+
+    console.log('🔄 提交智能体表单:', currentAgent.value ? '更新' : '创建')
 
     // 解析配置JSON
     let config = {}
@@ -633,11 +652,17 @@ const handleSubmit = async () => {
       config
     }
 
+    console.log('📝 提交数据:', submitData)
+    
+    // 使用生产环境数据操作
+    console.log('📊 使用生产环境数据提交智能体表单')
+
     if (currentAgent.value) {
       // 更新
       const response = await api.agents.update(currentAgent.value.id, submitData)
       if (response.data && response.data.success) {
         message.success('更新成功')
+        console.log('✅ 智能体更新成功')
       } else {
         throw new Error('更新失败')
       }
@@ -646,6 +671,7 @@ const handleSubmit = async () => {
       const response = await api.agents.create(submitData)
       if (response.data && response.data.success) {
         message.success('创建成功')
+        console.log('✅ 智能体创建成功')
       } else {
         throw new Error('创建失败')
       }
@@ -663,12 +689,8 @@ const handleSubmit = async () => {
     }
     await fetchAgents()
   } catch (error: any) {
-    console.error('提交失败:', error)
-    if (error.message) {
-      message.error(error.message)
-    } else {
-      message.error('提交失败')
-    }
+    console.error('❌ 提交失败:', error)
+    message.error(handleError(error))
   } finally {
     submitting.value = false
   }
@@ -676,8 +698,8 @@ const handleSubmit = async () => {
 
 // 组件挂载
 onMounted(() => {
+  console.log('🚀 智能体页面已挂载')
   fetchAgents()
-  console.log('智能体页面已挂载')
 })
 </script>
 
@@ -779,5 +801,123 @@ onMounted(() => {
 .stat-label {
   font-size: 14px;
   color: var(--n-text-color-3);
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  .agents-page {
+    gap: 20px;
+  }
+  
+  .filter-content {
+    gap: 12px;
+  }
+  
+  .search-input {
+    max-width: 250px;
+  }
+  
+  .stats-content {
+    gap: 24px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .filter-content {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  
+  .search-input {
+    max-width: 100%;
+    flex: 1;
+  }
+  
+  .filter-select {
+    min-width: 120px;
+  }
+  
+  .stats-content {
+    gap: 16px;
+  }
+  
+  .stat-number {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .header-right {
+    width: 100%;
+  }
+  
+  .filter-content {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .search-input,
+  .filter-select {
+    max-width: 100%;
+    min-width: auto;
+  }
+  
+  .stats-content {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .stat-item {
+    flex: none;
+  }
+  
+  .agent-name {
+    gap: 2px;
+  }
+  
+  .agent-name .description {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .agents-page {
+    gap: 16px;
+  }
+  
+  .page-title {
+    font-size: 20px;
+  }
+  
+  .filter-card,
+  .stats-card {
+    padding: 12px;
+  }
+  
+  .filter-content {
+    gap: 8px;
+  }
+  
+  .stat-number {
+    font-size: 18px;
+  }
+  
+  .stat-label {
+    font-size: 12px;
+  }
+  
+  .agent-name .name {
+    font-size: 13px;
+  }
+  
+  .agent-name .description {
+    font-size: 10px;
+  }
 }
 </style> 

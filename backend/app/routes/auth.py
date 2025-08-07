@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 import bcrypt
 import jwt
+import re
 from datetime import datetime, timedelta
 from app.services.database import get_db
 from bson import ObjectId
@@ -163,6 +164,7 @@ def get_profile():
                 'id': str(user['_id']),
                 'username': user['username'],
                 'email': user.get('email', ''),
+                'bio': user.get('bio', ''),
                 'role': user.get('role', 'user'),
                 'created_at': user.get('created_at', '').isoformat() if user.get('created_at') else None
             }
@@ -170,6 +172,86 @@ def get_profile():
         
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取用户资料失败: {str(e)}'}), 500
+
+@auth_bp.route('/profile', methods=['PUT'])
+def update_profile():
+    """更新用户资料"""
+    try:
+        # 从请求头获取token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'message': '未提供有效的认证token'}), 401
+        
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        
+        if not payload:
+            return jsonify({'success': False, 'message': 'token无效或已过期'}), 401
+        
+        data = request.get_json()
+        username = data.get('username')
+        email = data.get('email')
+        bio = data.get('bio', '')
+        
+        if not username:
+            return jsonify({'success': False, 'message': '用户名不能为空'}), 400
+        
+        if len(username) < 2 or len(username) > 20:
+            return jsonify({'success': False, 'message': '用户名长度必须在2-20个字符之间'}), 400
+        
+        if email and not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+            return jsonify({'success': False, 'message': '邮箱格式不正确'}), 400
+        
+        db = get_db()
+        user = db.users.find_one({'_id': ObjectId(payload['user_id'])})
+        
+        if not user:
+            return jsonify({'success': False, 'message': '用户不存在'}), 404
+        
+        # 检查用户名是否已被其他用户使用
+        existing_user = db.users.find_one({
+            'username': username,
+            '_id': {'$ne': ObjectId(payload['user_id'])}
+        })
+        if existing_user:
+            return jsonify({'success': False, 'message': '用户名已被使用'}), 400
+        
+        # 检查邮箱是否已被其他用户使用
+        if email:
+            existing_email = db.users.find_one({
+                'email': email,
+                '_id': {'$ne': ObjectId(payload['user_id'])}
+            })
+            if existing_email:
+                return jsonify({'success': False, 'message': '邮箱已被使用'}), 400
+        
+        # 更新用户资料
+        update_data = {
+            'username': username,
+            'bio': bio
+        }
+        if email:
+            update_data['email'] = email
+        
+        db.users.update_one(
+            {'_id': ObjectId(payload['user_id'])},
+            {'$set': update_data}
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': '用户资料更新成功',
+            'data': {
+                'id': str(user['_id']),
+                'username': username,
+                'email': email,
+                'bio': bio,
+                'role': user.get('role', 'user')
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'更新用户资料失败: {str(e)}'}), 500
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
@@ -183,4 +265,61 @@ def logout():
         })
         
     except Exception as e:
-        return jsonify({'success': False, 'message': f'登出失败: {str(e)}'}), 500 
+        return jsonify({'success': False, 'message': f'登出失败: {str(e)}'}), 500
+
+@auth_bp.route('/change-password', methods=['POST'])
+def change_password():
+    """修改密码"""
+    try:
+        # 从请求头获取token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'message': '未提供有效的认证token'}), 401
+        
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        
+        if not payload:
+            return jsonify({'success': False, 'message': 'token无效或已过期'}), 401
+        
+        data = request.get_json()
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+        
+        if not all([old_password, new_password]):
+            return jsonify({'success': False, 'message': '请填写所有必填字段'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'message': '新密码长度不能少于6位'}), 400
+        
+        db = get_db()
+        user = db.users.find_one({'_id': ObjectId(payload['user_id'])})
+        
+        if not user:
+            return jsonify({'success': False, 'message': '用户不存在'}), 404
+        
+        # 验证旧密码
+        if not bcrypt.checkpw(old_password.encode('utf-8'), user['password'].encode('utf-8')):
+            return jsonify({'success': False, 'message': '当前密码错误'}), 401
+        
+        # 加密新密码
+        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+        
+        # 更新密码
+        db.users.update_one(
+            {'_id': ObjectId(payload['user_id'])},
+            {
+                '$set': {
+                    'password': hashed_password.decode('utf-8'),
+                    'updated_at': datetime.utcnow()
+                }
+            }
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': '密码修改成功'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'密码修改失败: {str(e)}'}), 500 

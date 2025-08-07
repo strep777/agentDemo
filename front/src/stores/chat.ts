@@ -371,6 +371,8 @@ export const useChatStore = defineStore('chat', () => {
                                showThinking?: boolean
                                modelId?: string
                              }) => {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    
     try {
       streaming.value = true
       console.log('🔄 开始流式发送消息:', conversationId, content)
@@ -435,12 +437,13 @@ export const useChatStore = defineStore('chat', () => {
         return
       }
       
-      const reader = response.body?.getReader()
-      if (!reader) {
+      const responseReader = response.body?.getReader()
+      if (!responseReader) {
         console.error('❌ 无法读取响应流')
         onError?.('无法读取响应流')
         return
       }
+      reader = responseReader
       
       let fullResponse = ""
       const decoder = new TextDecoder()
@@ -511,8 +514,6 @@ export const useChatStore = defineStore('chat', () => {
       } catch (streamError) {
         console.error('❌ 读取流式响应失败:', streamError)
         onError?.(`读取流式响应失败: ${streamError}`)
-      } finally {
-        reader.releaseLock()
       }
       
     } catch (error: any) {
@@ -541,6 +542,14 @@ export const useChatStore = defineStore('chat', () => {
       
       onError?.(errorMessage)
     } finally {
+      // 确保释放reader资源
+      if (reader) {
+        try {
+          reader.releaseLock()
+        } catch (e) {
+          console.warn('⚠️ 释放reader失败:', e)
+        }
+      }
       streaming.value = false
     }
   }
@@ -609,6 +618,40 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // 清理所有对话
+  const clearAllConversations = async (): Promise<boolean> => {
+    try {
+      loading.value = true
+      console.log('🧹 开始清理所有对话...')
+      
+      // 获取所有对话
+      const allConversations = [...conversations.value]
+      
+      // 逐个删除对话
+      for (const conversation of allConversations) {
+        try {
+          await api.chat.conversations.delete(conversation.id)
+          console.log(`✅ 删除对话成功: ${conversation.title}`)
+        } catch (error) {
+          console.error(`❌ 删除对话失败: ${conversation.title}`, error)
+        }
+      }
+      
+      // 清空本地状态
+      conversations.value = []
+      currentConversation.value = null
+      messages.value = []
+      
+      console.log('✅ 清理所有对话完成')
+      return true
+    } catch (error) {
+      console.error('❌ 清理所有对话失败:', error)
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     // 状态
     conversations,
@@ -632,6 +675,7 @@ export const useChatStore = defineStore('chat', () => {
     streamMessage,
     getMessages,
     clearCurrentConversation,
+    clearAllConversations,
     reset
   }
 }) 

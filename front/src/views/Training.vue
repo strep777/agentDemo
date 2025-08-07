@@ -353,6 +353,7 @@ const pagination = ref({
   pageSize: 10,
   showSizePicker: true,
   pageSizes: [10, 20, 30, 40],
+  total: 0,
   onChange: (page: number) => {
     pagination.value.page = page
   },
@@ -533,63 +534,35 @@ const fetchTraining = async () => {
     } else {
       throw new Error('API响应格式错误')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('获取训练任务列表失败:', error)
-    message.error('获取训练任务列表失败')
-    // 使用模拟数据
-    training.value = [
-      {
-        id: '1',
-        name: '客服助手训练',
-        description: '训练客服助手模型',
-        type: 'supervised',
-        status: 'running',
-        progress: 65,
-        created_at: new Date().toISOString(),
-        started_at: new Date(Date.now() - 3600000).toISOString(),
-        estimated_completion: new Date(Date.now() + 1800000).toISOString(),
-        metrics: {
-          accuracy: 85.6,
-          loss: 0.12,
-          epochs: 15
-        },
-        logs: 'Epoch 15/20 - Loss: 0.12 - Accuracy: 85.6%'
-      },
-      {
-        id: '2',
-        name: '数据分析师训练',
-        description: '训练数据分析模型',
-        type: 'fine_tuning',
-        status: 'completed',
-        progress: 100,
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        started_at: new Date(Date.now() - 172800000).toISOString(),
-        estimated_completion: new Date(Date.now() - 86400000).toISOString(),
-        metrics: {
-          accuracy: 92.3,
-          loss: 0.08,
-          epochs: 20
-        },
-        logs: 'Training completed successfully'
-      },
-      {
-        id: '3',
-        name: '任务执行器训练',
-        description: '训练任务执行模型',
-        type: 'reinforcement',
-        status: 'stopped',
-        progress: 30,
-        created_at: new Date(Date.now() - 172800000).toISOString(),
-        started_at: new Date(Date.now() - 259200000).toISOString(),
-        estimated_completion: null,
-        metrics: {
-          accuracy: 45.2,
-          loss: 0.35,
-          epochs: 8
-        },
-        logs: 'Training stopped by user'
+    
+    // 统一的错误处理函数
+    const handleError = (error: any) => {
+      if (error.code === 'ECONNABORTED') {
+        return '请求超时，请检查后端服务是否正常运行'
+      } else if (error.code === 'ERR_NETWORK') {
+        return '网络连接失败，请检查网络连接'
+      } else if (error.response?.status === 500) {
+        return '服务器内部错误，请稍后重试'
+      } else if (error.response?.status === 404) {
+        return 'API端点不存在，请检查后端配置'
+      } else if (error.response?.status === 401) {
+        return '认证失败，请重新登录'
+      } else if (error.response?.status === 403) {
+        return '权限不足，无法访问此资源'
+      } else if (error.response?.status === 422) {
+        return '请求参数错误，请检查输入数据'
+      } else {
+        return `获取训练任务列表失败: ${error.message || '未知错误'}`
       }
-    ]
+    }
+    
+    message.error(handleError(error))
+    
+    // 清空数据而不是使用模拟数据
+    training.value = []
+    pagination.value.total = 0
   } finally {
     loading.value = false
   }
@@ -919,5 +892,90 @@ onMounted(() => {
 .stat-label {
   font-size: 14px;
   color: var(--n-text-color-3);
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+  .filter-content {
+    flex-wrap: wrap;
+  }
+  
+  .search-input {
+    max-width: 100%;
+  }
+  
+  .stats-content {
+    gap: 16px;
+  }
+  
+  .detail-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  
+  .metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .header-right {
+    width: 100%;
+  }
+  
+  .filter-content {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .search-input,
+  .filter-select {
+    max-width: 100%;
+    min-width: auto;
+  }
+  
+  .stats-content {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .stat-item {
+    flex: none;
+  }
+  
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .training-page {
+    gap: 16px;
+  }
+  
+  .page-title {
+    font-size: 20px;
+  }
+  
+  .filter-card,
+  .stats-card {
+    padding: 12px;
+  }
+  
+  .filter-content {
+    gap: 8px;
+  }
+  
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 </style> 
